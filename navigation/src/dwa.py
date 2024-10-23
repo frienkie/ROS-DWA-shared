@@ -34,7 +34,7 @@ class Config():
         self.yawrate_reso = 0.05  # [rad/s]
         self.dt = 0.1  # [s]
         self.predict_time = 1.7  # [s]
-        self.to_goal_cost_gain = 2.4 #lower = detour
+        self.to_goal_cost_gain = 2.4 #lower = detour         取最小代价，故越小的值越加权
         self.speed_cost_gain = 0.1 #lower = faster
         self.obs_cost_gain = 3.2 #lower z= fearless
         self.robot_radius = 0.18  # [m]
@@ -55,7 +55,7 @@ class Config():
             euler_from_quaternion ([rot_q.x,rot_q.y,rot_q.z,rot_q.w])
         self.th = theta
 
-    # Callback for attaining goal co-ordinates from Rviz Publish Point
+    # Callback for attaining goal co-ordinates from Rviz Publish Point #rviz中设置目标点
     def goalCB(self,msg):
         self.goalX = msg.point.x
         self.goalY = msg.point.y
@@ -106,7 +106,7 @@ class Obstacles():
                 else:
                     obsY = round((config.y + (distance * math.sin(abs(objTheta))))*8)/8
 
-                # add coords to set so as to only take unique obstacles
+                # add coords to set so as to only take unique obstacles   添加扫描的障碍物到记录
                 self.obst.add((obsX,obsY))
                 #print self.obst
 
@@ -177,7 +177,7 @@ def calc_final_input(x, u, dw, config, ob):
 
             final_cost = to_goal_cost + speed_cost + ob_cost
 
-            # search minimum trajectory
+            # search minimum trajectory     ##最小代价
             if min_cost >= final_cost:
                 min_cost = final_cost
                 min_u = [v, w]
@@ -192,12 +192,12 @@ def calc_obstacle_cost(traj, ob, config):
     # Use robot radius to determine if collision
     for ii in range(0, len(traj[:, 1]), skip_n):
         for i in ob.copy():
-            ox = i[0]
+            ox = i[0]           ##障害物
             oy = i[1]
-            dx = traj[ii, 0] - ox
+            dx = traj[ii, 0] - ox    ##轨迹
             dy = traj[ii, 1] - oy
 
-            r = math.sqrt(dx**2 + dy**2)
+            r = math.sqrt(dx**2 + dy**2)  ##距离
 
             if r <= config.robot_radius:
                 return float("Inf")  # collision
