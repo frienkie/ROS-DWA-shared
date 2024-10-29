@@ -33,18 +33,18 @@ class Config():
         self.max_dyawrate = 2.8  # [rad/ss]
         ##################################################33
         self.v_reso = 0.05  # [m/s]
-        self.yawrate_reso = 0.05  # [rad/s]
+        self.yawrate_reso = 0.1  # [rad/s]
         #######################################################
         self.dt = 0.1  # [s]
         self.predict_time = 1.7  # [s]
-        self.to_goal_cost_gain = 2.4 #lower = detour         取最小代价，故越小的值越加权
-        self.speed_cost_gain = 1 #lower = faster
-        self.obs_cost_gain = 0.5 #lower z= fearless
-        ##########################
-        self.to_human_cost_gain =2.4
+        self.to_goal_cost_gain = 2.4       
+        #########################################
+        self.speed_cost_gain = 1 
+        self.obs_cost_gain = 5 
+        self.to_human_cost_gain =1
 
         #############################
-        self.robot_radius = 0.1  # [m]
+        self.robot_radius = 0.15  # [m]
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
@@ -167,6 +167,10 @@ def calc_trajectory(xinit, v, y, config):
 
 
 ################################################################################
+
+
+
+
 # Calculate trajectory, costings, and return velocities to apply to robot
 def calc_final_input(x, u, dw, config, ob):
 
@@ -181,11 +185,14 @@ def calc_final_input(x, u, dw, config, ob):
             traj = calc_trajectory(xinit, v, w, config)
 
             # calc costs with weighted gains
-            to_human_cost = (1-calc_to_human_cost(v,w)) * config.to_human_cost_gain
+            to_human_cost = (1-calc_to_human_cost(v,w,config)) * config.to_human_cost_gain
 
             speed_cost = config.speed_cost_gain *(1-abs(human.linear.x - v)/0.22)
 
             ob_cost = calc_obstacle_cost(traj, ob, config) * config.obs_cost_gain
+
+            if np.isinf(ob_cost):
+                continue
 
             final_cost = to_human_cost + speed_cost + ob_cost
 
@@ -193,6 +200,8 @@ def calc_final_input(x, u, dw, config, ob):
             if max_cost <= final_cost:
                 max_cost = final_cost
                 max_u = [v, w]
+    if human.linear.x==0:
+        max_u[0] = 0.0
     return max_u
 #################################################################################
 
@@ -203,7 +212,7 @@ def calc_final_input(x, u, dw, config, ob):
 # Calculate obstacle cost inf: collision, 0:free
 def calc_obstacle_cost(traj, ob, config):
     skip_n = 2
-    minr = 2
+    minr = 3
 
     # Loop through every obstacle in set and calc Pythagorean distance
     # Use robot radius to determine if collision
@@ -221,9 +230,9 @@ def calc_obstacle_cost(traj, ob, config):
 
             if minr >= r:
                 minr = r
-    if minr>2:
-        minr=2
-    return (minr-0.1)/1.9
+    if minr>3:
+        minr=3
+    return (minr-0.1)/2.9
 
 # Calculate goal cost via Pythagorean distance to robot
 def calc_to_goal_cost(traj, config):
@@ -246,7 +255,7 @@ def calc_to_goal_cost(traj, config):
     cost = math.sqrt(dx**2 + dy**2)
     return cost
 ############################################################################333
-def calc_to_human_cost( v, w):
+def calc_to_human_cost( v, w,config):
 
     if w==0:
         robot_r=float("inf")
@@ -255,17 +264,17 @@ def calc_to_human_cost( v, w):
     
     #cost =abs(np.tanh(robot_r/10)-np.tanh(human_r/10))
 
-    if robot_r< Config.v_reso/Config.max_yawrate&w>0:
-        robot_r=Config.v_reso/Config.max_yawrate-0.01
-    if robot_r> -Config.v_reso/Config.max_yawrate&w<0:
-        robot_r=-Config.v_reso/Config.max_yawrate+0.01
+    if (robot_r< config.v_reso/config.max_yawrate)and w>0:
+        robot_r=config.v_reso/config.max_yawrate-0.01
+    if (robot_r> -config.v_reso/config.max_yawrate)and w<0:
+        robot_r=-config.v_reso/config.max_yawrate+0.01
     if v==0:
         if w>0:
-            robot_r=Config.v_reso/Config.max_yawrate-0.01
+            robot_r=config.v_reso/config.max_yawrate-0.01
         if w<0:
-            robot_r=-Config.v_reso/Config.max_yawrate+0.01
+            robot_r=-config.v_reso/config.max_yawrate+0.01
     
-    cost = abs(1/human_r - 1/robot_r)/(2*(1/(Config.v_reso/Config.max_yawrate-0.01)))
+    cost = abs(1/human_r - 1/robot_r)/(2*(1/(config.v_reso/config.max_yawrate-0.01)))
 
     # if (np.isinf(robot_r)&np.isinf(human_r)):
     #     cost=0
@@ -302,15 +311,15 @@ def share1(vel_msg):# human command get 获取人类指令
         human_r=float("inf")
     else:
         human_r=human.linear.x/human.angular.z
-    if human_r< Config.v_reso/Config.max_yawrate&human.angular.z>0:
-        human_r=Config.v_reso/Config.max_yawrate-0.01
-    if human_r> -Config.v_reso/Config.max_yawrate&human.angular.z<0:
-        human_r=-Config.v_reso/Config.max_yawrate+0.01
+    if (human_r< 0.05/2.8) and human.angular.z>0:
+        human_r=0.05/2.8-0.01
+    if (human_r> -0.05/2.8) and human.angular.z<0:
+        human_r=-0.05/2.8+0.01
     if human.linear.x==0:
         if human.angular.z>0:
-            human_r=Config.v_reso/Config.max_yawrate-0.01
+            human_r=0.05/2.8-0.01
         if human.angular.z<0:
-            human_r=-Config.v_reso/Config.max_yawrate+0.01
+            human_r=-0.05/2.8+0.01
     # 取正符号
 
 
