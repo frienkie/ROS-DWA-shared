@@ -25,19 +25,26 @@ class Config():
         # robot parameter
         #NOTE good params:
         #NOTE 0.55,0.1,1.0,1.6,3.2,0.15,0.05,0.1,1.7,2.4,0.1,3.2,0.18
-        self.max_speed = 0.55  # [m/s]
-        self.min_speed = 0.1  # [m/s]
-        self.max_yawrate = 1.0  # [rad/s]
-        self.max_accel = 1.6  # [m/ss]
-        self.max_dyawrate = 3.2  # [rad/ss]
-        self.v_reso = 0.15  # [m/s]
+        self.max_speed = 0.20  # [m/s]
+        self.min_speed = 0.0  # [m/s]
+        self.max_yawrate = 2.80  # [rad/s]
+
+        self.max_accel = 1.0  # [m/ss]
+        self.max_dyawrate = 2.8  # [rad/ss]
+        ##################################################33
+        self.v_reso = 0.05  # [m/s]
         self.yawrate_reso = 0.05  # [rad/s]
+        #######################################################
         self.dt = 0.1  # [s]
         self.predict_time = 1.7  # [s]
         self.to_goal_cost_gain = 2.4 #lower = detour         取最小代价，故越小的值越加权
-        self.speed_cost_gain = 0.1 #lower = faster
-        self.obs_cost_gain = 3.2 #lower z= fearless
-        self.robot_radius = 0.18  # [m]
+        self.speed_cost_gain = 1 #lower = faster
+        self.obs_cost_gain = 0.5 #lower z= fearless
+        ##########################
+        self.to_human_cost_gain =2.4
+
+        #############################
+        self.robot_radius = 0.1  # [m]
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
@@ -155,38 +162,48 @@ def calc_trajectory(xinit, v, y, config):
 
     return traj
 
+
+
+
+
+################################################################################
 # Calculate trajectory, costings, and return velocities to apply to robot
 def calc_final_input(x, u, dw, config, ob):
 
-    xinit = x[:]
-    min_cost = 10000.0
-    min_u = u
-    min_u[0] = 0.0
+    xinit = x[:]######默认为0和1
+    max_cost = 0
+    max_u = u
+    max_u[0] = 0.0 #全部为死路，原地回转
 
     # evaluate all trajectory with sampled input in dynamic window
-    for v in np.arange(dw[0], dw[1], config.v_reso):
-        for w in np.arange(dw[2], dw[3], config.yawrate_reso):
+    for v in np.arange(0.0, 0.20+config.v_reso, config.v_reso):
+        for w in np.arange(-2.8, 2.8+config.yawrate_reso, config.yawrate_reso):
             traj = calc_trajectory(xinit, v, w, config)
 
             # calc costs with weighted gains
-            to_goal_cost = calc_to_goal_cost(traj, config) * config.to_goal_cost_gain
-            speed_cost = config.speed_cost_gain * \
-                (config.max_speed - traj[-1, 3])
+            to_human_cost = (1-calc_to_human_cost(v,w)) * config.to_human_cost_gain
+
+            speed_cost = config.speed_cost_gain *(1-abs(human.linear.x - v)/0.22)
 
             ob_cost = calc_obstacle_cost(traj, ob, config) * config.obs_cost_gain
 
-            final_cost = to_goal_cost + speed_cost + ob_cost
+            final_cost = to_human_cost + speed_cost + ob_cost
 
-            # search minimum trajectory     ##最小代价
-            if min_cost >= final_cost:
-                min_cost = final_cost
-                min_u = [v, w]
-    return min_u
+            # search minimum trajectory     ##最大代价
+            if max_cost <= final_cost:
+                max_cost = final_cost
+                max_u = [v, w]
+    return max_u
+#################################################################################
+
+
+
+
 
 # Calculate obstacle cost inf: collision, 0:free
 def calc_obstacle_cost(traj, ob, config):
     skip_n = 2
-    minr = float("inf")
+    minr = 2
 
     # Loop through every obstacle in set and calc Pythagorean distance
     # Use robot radius to determine if collision
@@ -200,12 +217,13 @@ def calc_obstacle_cost(traj, ob, config):
             r = math.sqrt(dx**2 + dy**2)  ##距离
 
             if r <= config.robot_radius:
-                return float("Inf")  # collision
+                return float("-Inf")  # collision
 
             if minr >= r:
                 minr = r
-
-    return 1.0 / minr
+    if minr>2:
+        minr=2
+    return (minr-0.1)/1.9
 
 # Calculate goal cost via Pythagorean distance to robot
 def calc_to_goal_cost(traj, config):
@@ -227,6 +245,35 @@ def calc_to_goal_cost(traj, config):
 
     cost = math.sqrt(dx**2 + dy**2)
     return cost
+############################################################################333
+def calc_to_human_cost( v, w):
+
+    if w==0:
+        robot_r=float("inf")
+    else:
+        robot_r=v/w
+    
+    #cost =abs(np.tanh(robot_r/10)-np.tanh(human_r/10))
+
+    if robot_r< Config.v_reso/Config.max_yawrate&w>0:
+        robot_r=Config.v_reso/Config.max_yawrate-0.01
+    if robot_r> -Config.v_reso/Config.max_yawrate&w<0:
+        robot_r=-Config.v_reso/Config.max_yawrate+0.01
+    if v==0:
+        if w>0:
+            robot_r=Config.v_reso/Config.max_yawrate-0.01
+        if w<0:
+            robot_r=-Config.v_reso/Config.max_yawrate+0.01
+    
+    cost = abs(1/human_r - 1/robot_r)/(2*(1/(Config.v_reso/Config.max_yawrate-0.01)))
+
+    # if (np.isinf(robot_r)&np.isinf(human_r)):
+    #     cost=0
+    # else:
+    #     cost =abs(robot_r-human_r)
+
+    return cost
+##################################################################################
 
 # Begin DWA calculations
 def dwa_control(x, u, config, ob):
@@ -246,17 +293,52 @@ def atGoal(config, x):
         return True
     return False
 
+def share1(vel_msg):# human command get 获取人类指令
+    global human
+    global human_r
+    human.linear.x=vel_msg.linear.x
+    human.angular.z=vel_msg.angular.z
+    if human.angular.z == 0:
+        human_r=float("inf")
+    else:
+        human_r=human.linear.x/human.angular.z
+    if human_r< Config.v_reso/Config.max_yawrate&human.angular.z>0:
+        human_r=Config.v_reso/Config.max_yawrate-0.01
+    if human_r> -Config.v_reso/Config.max_yawrate&human.angular.z<0:
+        human_r=-Config.v_reso/Config.max_yawrate+0.01
+    if human.linear.x==0:
+        if human.angular.z>0:
+            human_r=Config.v_reso/Config.max_yawrate-0.01
+        if human.angular.z<0:
+            human_r=-Config.v_reso/Config.max_yawrate+0.01
+    # 取正符号
+
+
+human=Twist()
+human_r=float("inf")
 
 def main():
     print(__file__ + " start!!")
+    print("human is 0,share is 1")
+    inputs=input()
+    if inputs=="0":
+            inputkey=0
+    elif inputs=="1":
+            inputkey=1
+    else:
+            rospy.loginfo("input error,run as human")
+            inputkey = 0
     # robot specification
     config = Config()
     # position of obstacles
     obs = Obstacles()
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
     subLaser = rospy.Subscriber("/scan", LaserScan, obs.assignObs, config)
-    subGoal = rospy.Subscriber("/clicked_point", PointStamped, config.goalCB)
-    pub = rospy.Publisher("cmd_vel_mux/input/teleop", Twist, queue_size=1)
+    # subGoal = rospy.Subscriber("/clicked_point", PointStamped, config.goalCB)
+
+    sub_hum = rospy.Subscriber("/cmd_vel_human",Twist,share1,queue_size=1)
+
+    pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
     speed = Twist()
     # initial state [x(m), y(m), theta(rad), v(m/s), omega(rad/s)]
     x = np.array([config.x, config.y, config.th, 0.0, 0.0])
@@ -265,7 +347,7 @@ def main():
 
     # runs until terminated externally
     while not rospy.is_shutdown():
-        if (atGoal(config,x) == False):
+        if (inputkey== 1):
             u = dwa_control(x, u, config, obs.obst)
             x[0] = config.x
             x[1] = config.y
@@ -275,9 +357,9 @@ def main():
             speed.linear.x = x[3]
             speed.angular.z = x[4]
         else:
-            # if at goal then stay there until new goal published
-            speed.linear.x = 0.0
-            speed.angular.z = 0.0
+            # if 0 then do directly
+            speed.linear.x = human.linear.x
+            speed.angular.z = human.angular.z
 
         pub.publish(speed)
         config.r.sleep()
