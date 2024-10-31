@@ -17,7 +17,6 @@ from geometry_msgs.msg import Twist, PointStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
-import operator
 from std_msgs.msg import Float64
 
 
@@ -43,7 +42,7 @@ class Config():
         self.to_goal_cost_gain = 2.4       
         #########################################
         self.speed_cost_gain = 1 
-        self.obs_cost_gain = 10 
+        self.obs_cost_gain = 8 
         self.to_human_cost_gain =1
 
         #############################
@@ -87,6 +86,42 @@ class Obstacles():
             i += step
         yield end
 
+    def assignObs1(self, msg, config):
+
+        deg = len(msg.ranges)   # Number of degrees - varies in Sim vs real world
+        # print("Laser degree length {}".format(deg))
+        self.obst = set()   # reset the obstacle set to only keep visible objects
+        scan_range = []
+        for i in range(len(msg.ranges)):
+            # if msg.ranges[i] == float('Inf'):
+            if msg.ranges>3.5:
+                continue
+                # scan_range.append(3.5)
+            elif np.isnan(msg.ranges[i]):
+                # scan_range.append(0)
+                distance = 0.12
+
+            else:
+                distance = msg.ranges[i]
+
+            #degree and rad
+            deg = (360)/len(msg.ranges)
+            rad = (2*math.pi)/len(msg.ranges)
+            objTheta_rad = rad * i
+            objTheta_deg = deg * i
+
+            #local(robot)
+            obsX_robo = distance * math.cos(abs(objTheta_rad))
+            obsY_robo = distance * math.sin(abs(objTheta_rad))
+
+            #global
+            obsX = obsX_robo * math.cos(config.th) - obsY_robo * math.sin(config.th) + config.x
+            obsY = obsX_robo * math.sin(config.th) + obsY_robo * math.cos(config.th) + config.y
+
+            # all obastacle data
+            self.obst.add((obsX,obsY))
+        # print (self.obst)
+
     def callback_laser(self, msg, config):
 
         data = np.array(msg.ranges)
@@ -95,37 +130,38 @@ class Obstacles():
         for i in range(91):
             distance=data[i]
             scanTheta=i/180*np.pi
-            if (distance < 3.5 and distance>=0.12):
+            if (distance < 3.5):
                 objTheta=config.th + scanTheta
                 if (objTheta<-math.pi):
                     objTheta=objTheta+1.5*math.pi
-                    obsX=config.x-distance*math.sin(scanTheta)
-                    obsY=config.y+distance*math.cos(scanTheta)
+                    obsX=round(config.x-distance*math.sin(scanTheta),5)
+                    obsY=round(config.y+distance*math.cos(scanTheta),5)
                 elif(objTheta>math.pi):
                     objTheta=objTheta-1.5*math.pi
-                    obsX=config.x+distance*math.sin(scanTheta)
-                    obsY=config.y-distance*math.cos(scanTheta)
+                    obsX=round(config.x+distance*math.sin(scanTheta),5)
+                    obsY=round(config.y-distance*math.cos(scanTheta),5)
                 else:
-                    obsX=config.x+distance*math.cos(scanTheta)
-                    obsY=config.y+distance*math.sin(scanTheta)
+                    obsX=round(config.x+distance*math.cos(scanTheta),5)
+                    obsY=round(config.y+distance*math.sin(scanTheta),5)
                 self.obst.add((obsX,obsY))
         for j in range(270,360):
             distance=data[j]
             scanTheta=-(360-j)/180*np.pi
-            if (distance < 3.5 and distance>=0.12):
+            if (distance < 3.5):
                 objTheta=config.th + scanTheta
                 if (objTheta<-math.pi):
                     objTheta=objTheta+1.5*math.pi
-                    obsX=config.x-distance*math.sin(scanTheta)
-                    obsY=config.y+distance*math.cos(scanTheta)
+                    obsX=round(config.x-distance*math.sin(scanTheta),5)
+                    obsY=round(config.y+distance*math.cos(scanTheta),5)
                 elif(objTheta>math.pi):
                     objTheta=objTheta-1.5*math.pi
-                    obsX=config.x+distance*math.sin(scanTheta)
-                    obsY=config.y-distance*math.cos(scanTheta)
+                    obsX=round(config.x+distance*math.sin(scanTheta),5)
+                    obsY=round(config.y-distance*math.cos(scanTheta),5)
                 else:
-                    obsX=config.x+distance*math.cos(scanTheta)
-                    obsY=config.y+distance*math.sin(scanTheta)
+                    obsX=round(config.x+distance*math.cos(scanTheta),5)
+                    obsY=round(config.y+distance*math.sin(scanTheta),5)
                 self.obst.add((obsX,obsY))
+        print (self.obst)
 
     # Callback for LaserScan
     def assignObs(self, msg, config):
@@ -134,7 +170,7 @@ class Obstacles():
         for angle in self.myRange(0,deg-1,16):
             distance = msg.ranges[angle]
             # only record obstacles that are within 4 metres away
-            if (distance < 3.5 and distance>=0.12):
+            if (distance < 3.5 ):
                 # angle of obstacle wrt robot
                 # angle/2.844 is to normalise the 512 degrees in real world
                 # for simulation in Gazebo, use angle/4.0
@@ -161,7 +197,7 @@ class Obstacles():
 
                 # add coords to set so as to only take unique obstacles   添加扫描的障碍物到记录
                 self.obst.add((obsX,obsY))
-                #print self.obst
+                print (self.obst)
 
 # Model to determine the expected position of the robot after moving along trajectory
 def motion(x, u, dt):
@@ -237,8 +273,8 @@ def calc_final_input(x, u, dw, config, ob):
 
             ob_cost = calc_obstacle_cost(traj, ob, config) * config.obs_cost_gain
 
-            if np.isinf(ob_cost):
-                continue
+            # if np.isinf(ob_cost):
+            #     continue
 
             final_cost = to_human_cost + speed_cost + ob_cost
 
@@ -396,7 +432,7 @@ def main():
     # position of obstacles
     obs = Obstacles()
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
-    subLaser = rospy.Subscriber("/scan", LaserScan, obs.assignObs, config)
+    subLaser = rospy.Subscriber("/scan", LaserScan, obs.assignObs1, config)
     # subGoal = rospy.Subscriber("/clicked_point", PointStamped, config.goalCB)
 
     sub_hum = rospy.Subscriber("/cmd_vel_human",Twist,share1,config,queue_size=1)
