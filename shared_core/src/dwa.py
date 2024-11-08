@@ -40,6 +40,7 @@ class Config():
         #######################################################
         self.dt = 0.2  # [s]
         self.predict_time = 4  # [s]
+        self.showdt = 0.4
         #########################################
         self.speed_cost_gain = 1 
         self.obs_cost_gain = 0.5 
@@ -188,11 +189,9 @@ def calc_trajectory(xinit, v, y, config):
         # store each motion model along a trajectory
         x = motion(x, [v, y], config.dt)
         traj = np.vstack((traj, x))
-        time += config.dt # next sample
+        time += config.showdt # next sample
 
     return traj
-
-
 
 
 
@@ -215,7 +214,7 @@ def calc_final_input(x, u, dw, config, ob):
             traj = calc_trajectory(xinit, v, w, config)
 
             # calc costs with weighted gains
-            to_human_cost = (1-calc_to_human_cost(v,w,config)) * config.to_human_cost_gain
+            to_human_cost = (1-calc_to_human_cost(v,w,config,2)) * config.to_human_cost_gain
 
             speed_cost = config.speed_cost_gain *(1-abs(human.linear.x - v)/0.2)
 
@@ -238,8 +237,6 @@ def calc_final_input(x, u, dw, config, ob):
         max_u[0] = 0.0
     return max_u
 #################################################################################
-
-
 
 
 
@@ -268,48 +265,30 @@ def calc_obstacle_cost(traj, ob, config):
 
     return (minr-0.12)/3.38
 
-# Calculate goal cost via Pythagorean distance to robot
-def calc_to_goal_cost(traj, config):
-    # If-Statements to determine negative vs positive goal/trajectory position
-    # traj[-1,0] is the last predicted X coord position on the trajectory
-    if (config.goalX >= 0 and traj[-1,0] < 0):
-        dx = config.goalX - traj[-1,0]
-    elif (config.goalX < 0 and traj[-1,0] >= 0):
-        dx = traj[-1,0] - config.goalX
-    else:
-        dx = abs(config.goalX - traj[-1,0])
-    # traj[-1,1] is the last predicted Y coord position on the trajectory
-    if (config.goalY >= 0 and traj[-1,1] < 0):
-        dy = config.goalY - traj[-1,1]
-    elif (config.goalY < 0 and traj[-1,1] >= 0):
-        dy = traj[-1,1] - config.goalY
-    else:
-        dy = abs(config.goalY - traj[-1,1])
-
-    cost = math.sqrt(dx**2 + dy**2)
-    return cost
 ############################################################################333
-def calc_to_human_cost( v, w,config):
+def calc_to_human_cost( v, w,config,n):
+    if n==1:
+        if w==0:
+            robot_r=float("inf")
+        else:
+            robot_r=v/w
+        
+        #cost =abs(np.tanh(robot_r/10)-np.tanh(human_r/10))
 
-    if w==0:
-        robot_r=float("inf")
-    else:
-        robot_r=v/w
-    
-    #cost =abs(np.tanh(robot_r/10)-np.tanh(human_r/10))
-
-    if (robot_r< config.v_reso/config.max_yawrate)and w>0:
-        robot_r=config.v_reso/config.max_yawrate-0.01
-    if (robot_r> -config.v_reso/config.max_yawrate)and w<0:
-        robot_r=-config.v_reso/config.max_yawrate+0.01
-    if v==0:
-        if w>0:
+        if (robot_r< config.v_reso/config.max_yawrate)and w>0:
             robot_r=config.v_reso/config.max_yawrate-0.01
-        if w<0:
+        if (robot_r> -config.v_reso/config.max_yawrate)and w<0:
             robot_r=-config.v_reso/config.max_yawrate+0.01
-    
-    cost = abs(1/human_r - 1/robot_r)/(2*(1/(config.v_reso/config.max_yawrate-0.01)))
-
+        if v==0:
+            if w>0:
+                robot_r=config.v_reso/config.max_yawrate-0.01
+            if w<0:
+                robot_r=-config.v_reso/config.max_yawrate+0.01
+        
+        cost = abs(1/human_r - 1/robot_r)/(2*(1/(config.v_reso/config.max_yawrate-0.01)))
+    else:
+        robot_angle=cal_angle(v,w)
+        cost = abs(human_angle-robot_angle)/math.pi
     # if (np.isinf(robot_r)&np.isinf(human_r)):
     #     cost=0
     # else:
@@ -328,15 +307,28 @@ def dwa_control(x, u, config, ob):
 
     return u
 
+def cal_angle(v,w):
+    if v==0:
+        v=1
+    x=v*math.cos(w)
+    y=v*math.sin(w)
+    angle = math.atan2(y, x)
+    return angle
+
+
 def share1(vel_msg,config):# human command get 获取人类指令
     global human
     global human_r
     global inputkey
+    global human_angle
     human.linear.x=vel_msg.linear.x
     if inputkey==1:
         if human.linear.x<0:
             human.linear.x=0
     human.angular.z=vel_msg.angular.z
+
+    human_angle=cal_angle(human.linear.x,human.angular.z)
+
     if human.angular.z == 0:
         human_r=float("inf")
     else:
@@ -358,31 +350,29 @@ marker =  Marker()
 marker.header.frame_id = "odom"
 marker.type = marker.LINE_STRIP
 marker.action = marker.ADD
-
-def line(num):
-
     # marker scale
-    marker.scale.x = 0.03
-    marker.scale.y = 0.03
-    marker.scale.z = 0.03
+marker.scale.x = 0.1
+marker.scale.y = 0.1
+marker.scale.z = 0.1
 
-    # marker color
-    marker.color.a = 1.0
-    marker.color.r = 1.0
-    marker.color.g = 1.0
-    marker.color.b = 0.0
+    # marker color #green
+marker.color.a = 1.0
+marker.color.r = 0.0
+marker.color.g = 1.0
+marker.color.b = 0.0
 
     # marker orientaiton
-    marker.pose.orientation.x = 0.0
-    marker.pose.orientation.y = 0.0
-    marker.pose.orientation.z = 0.0
-    marker.pose.orientation.w = 1.0
+marker.pose.orientation.x = 0.0
+marker.pose.orientation.y = 0.0
+marker.pose.orientation.z = 0.0
+marker.pose.orientation.w = 1.0
 
     # marker position  ###no influence in line
-    marker.pose.position.x = 0.0
-    marker.pose.position.y = 0.0
-    marker.pose.position.z = 0.0
+marker.pose.position.x = 0.0
+marker.pose.position.y = 0.0
+marker.pose.position.z = 0.0
 
+def line(num):
     # marker line points
     marker.points = []
 
