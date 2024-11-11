@@ -40,14 +40,14 @@ class Config():
         #######################################################
         self.dt = 0.2  # [s]
         self.predict_time = 4  # [s]
-        self.showdt = 0.4
+        self.showdt = 0.2
         #########################################
         self.speed_cost_gain = 1 
-        self.obs_cost_gain = 0.5 
+        self.obs_cost_gain = 1.5
         self.to_human_cost_gain =1
 
         #############################
-        self.robot_radius = 0.15  # [m]
+        self.robot_radius = 0.11  # [m]
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
@@ -206,7 +206,8 @@ def calc_final_input(x, u, dw, config, ob):
     xinit = x[:]######默认为0和1
     max_cost = 0
     max_u = u
-    max_u[0] = 0.0 #全部为死路，原地回转
+    max_u[0] = 0.0 #全部为死路
+    max_u[1] = human.angular.z
     global ob_costly
     # evaluate all trajectory with sampled input in dynamic window
     for v in np.arange(0.0, config.max_speed+config.v_reso, config.v_reso):
@@ -309,12 +310,14 @@ def dwa_control(x, u, config, ob):
 
 def cal_angle(v,w):
     if v==0:
-        v=1
-    x=v*math.cos(w)
-    y=v*math.sin(w)
-    angle = math.atan2(y, x)
+        angle=w+math.pi/2
+    else:
+        x=v*math.cos(w)
+        y=v*math.sin(w)
+        angle = math.atan2(y, x)
     return angle
 
+human_angle=math.pi/2
 
 def share1(vel_msg,config):# human command get 获取人类指令
     global human
