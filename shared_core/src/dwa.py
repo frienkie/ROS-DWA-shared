@@ -44,7 +44,7 @@ class Config():
         #########################################
         self.speed_cost_gain = 1 
         self.obs_cost_gain = 1.5
-        self.to_human_cost_gain =1
+        self.to_human_cost_gain =1.2
 
         #############################
         self.robot_radius = 0.11  # [m]
@@ -312,8 +312,8 @@ def cal_angle(v,w):
     if v==0:
         angle=w+math.pi/2
     else:
-        x=v*math.cos(w)
-        y=v*math.sin(w)
+        y=v*math.cos(w)
+        x=v*math.sin(w)
         angle = math.atan2(y, x)
     return angle
 
@@ -324,13 +324,19 @@ def share1(vel_msg,config):# human command get 获取人类指令
     global human_r
     global inputkey
     global human_angle
-    human.linear.x=vel_msg.linear.x
+    if vel_msg.linear.x<=0: ##零点飘逸
+        human.linear.x=0
+    else:
+        human.linear.x=vel_msg.linear.x
+
     if inputkey==1:
         if human.linear.x<0:
             human.linear.x=0
     human.angular.z=vel_msg.angular.z
 
     human_angle=cal_angle(human.linear.x,human.angular.z)
+
+    # print(human_angle)
 
     if human.angular.z == 0:
         human_r=float("inf")
