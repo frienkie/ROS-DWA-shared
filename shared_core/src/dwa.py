@@ -316,6 +316,14 @@ def dwa_control(x, u, config, ob):
 
     return u
 
+def atGoal(config, x):
+    # check at goal
+    if math.sqrt((x[0] - config.goalX)**2 + (x[1] - config.goalY)**2) \
+        <= config.robot_radius:
+        return 1
+    return 0
+
+
 def cal_angle(v,w):
     if v==0:
         angle=w+math.pi/2
@@ -443,6 +451,8 @@ def main():
     # runs until terminated externally
     while not rospy.is_shutdown():
         if (inputkey== 1):
+            if atGoal(config, x)==1:
+                print("YOU have arrive the goal point")
             u = dwa_control(x, u, config, obs.obst)
             x[0] = config.x
             x[1] = config.y
