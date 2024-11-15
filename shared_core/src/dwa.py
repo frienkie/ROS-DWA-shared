@@ -35,16 +35,16 @@ class Config():
         self.max_accel = 1.0  # [m/ss]
         self.max_dyawrate = 2.8  # [rad/ss]
         ##################################################33
-        self.v_reso = 0.02  # [m/s]
+        self.v_reso = 0.04  # [m/s]
         self.yawrate_reso = 0.05  # [rad/s]
         #######################################################
         self.dt = 0.2  # [s]
-        self.predict_time = 4  # [s]
+        self.predict_time = 4.0  # [s]
         self.showdt = 0.2
         #########################################
-        self.speed_cost_gain = 1 
-        self.obs_cost_gain = 1.5
-        self.to_human_cost_gain =1.2
+        self.speed_cost_gain = 1.0 
+        self.obs_cost_gain = 1.2
+        self.to_human_cost_gain =1.0
 
         #############################
         self.robot_radius = 0.11  # [m]
@@ -78,15 +78,6 @@ class Obstacles():
     def __init__(self):
         # Set of coordinates of obstacles in view
         self.obst = set()
-
-    # Custom range implementation to loop over LaserScan degrees with
-    # a step and include the final degree
-    def myRange(self,start,end,step):
-        i = start
-        while i < end:
-            yield i
-            i += step
-        yield end
 
     def assignObs1(self, msg, config):
 
@@ -177,10 +168,9 @@ def show_trajectory(xinit, v, y, config):
     line_num=len(list_x)
     
 
-
+angle_robot=0.0
 # Calculate a trajectory sampled across a prediction time
 def calc_trajectory(xinit, v, y, config):
-
     x = np.array(xinit)
     traj = np.array(x)  # many motion models stored per trajectory
     time = 0
@@ -193,10 +183,25 @@ def calc_trajectory(xinit, v, y, config):
 
     return traj
 
+def calc_angle_fromtraj(v, y, config):
+
+    x = np.array([0,0,0,v,y])
+    time = 0
+    angle =0.0
+
+    while time <= 1.0:
+        # store each motion model along a trajectory
+        x = motion(x, [v, y], config.dt)
+        time += config.showdt # next sample
+    if v==0:
+        angle=y*1.0
+    else:
+        angle=math.atan2(x[1], x[0])
+    #print(angle)
+    return angle
 
 
 ################################################################################
-
 
 
 
@@ -208,14 +213,14 @@ def calc_final_input(x, u, dw, config, ob):
     max_u = u
     max_u[0] = 0.0 #全部为死路
     max_u[1] = human.angular.z
-    global ob_costly
+    global ob_costly,angle_robot
     # evaluate all trajectory with sampled input in dynamic window
     for v in np.arange(0.0, config.max_speed+config.v_reso, config.v_reso):
         for w in np.arange(-config.max_yawrate, config.max_yawrate+config.yawrate_reso, config.yawrate_reso):
             traj = calc_trajectory(xinit, v, w, config)
-
+            
             # calc costs with weighted gains
-            to_human_cost = (1-calc_to_human_cost(v,w,config,2)) * config.to_human_cost_gain
+            to_human_cost = (1-calc_to_human_cost(v,w,config,3)) * config.to_human_cost_gain
 
             speed_cost = config.speed_cost_gain *(1-abs(human.linear.x - v)/0.2)
 
@@ -230,9 +235,9 @@ def calc_final_input(x, u, dw, config, ob):
             if max_cost <= final_cost:
                 max_cost = final_cost
                 max_u = [v, w]
-                ob_costly=max_cost
-    # print(max_cost)
-    # show_trajectory(xinit, max_u[0], max_u[1], config)
+    #             ob_costly=angle_robot
+    # print(ob_costly)
+    # print(max_u[0],max_u[1])
     show_trajectory(xinit, max_u[0], max_u[1], config)
     if human.linear.x<=0.001:
         max_u[0] = 0.0
@@ -287,6 +292,9 @@ def calc_to_human_cost( v, w,config,n):
                 robot_r=-config.v_reso/config.max_yawrate+0.01
         
         cost = abs(1/human_r - 1/robot_r)/(2*(1/(config.v_reso/config.max_yawrate-0.01)))
+    elif n==3:
+        angle_robot=calc_angle_fromtraj(v, w, config)
+        cost=abs(angle_human-angle_robot)/math.pi
     else:
         robot_angle=cal_angle(v,w)
         cost = abs(human_angle-robot_angle)/math.pi
@@ -318,39 +326,40 @@ def cal_angle(v,w):
     return angle
 
 human_angle=math.pi/2
+angle_human=0
 
 def share1(vel_msg,config):# human command get 获取人类指令
     global human
     global human_r
     global inputkey
     global human_angle
-    if vel_msg.linear.x<=0: ##零点飘逸
-        human.linear.x=0
-    else:
-        human.linear.x=vel_msg.linear.x
+    global angle_human
+
+    human.linear.x=vel_msg.linear.x
 
     if inputkey==1:
         if human.linear.x<0:
             human.linear.x=0
     human.angular.z=vel_msg.angular.z
 
-    human_angle=cal_angle(human.linear.x,human.angular.z)
+    # human_angle=cal_angle(human.linear.x,human.angular.z)
 
+    angle_human=calc_angle_fromtraj(human.linear.x,human.angular.z,config)
     # print(human_angle)
 
-    if human.angular.z == 0:
-        human_r=float("inf")
-    else:
-        human_r=human.linear.x/human.angular.z
-    if (human_r< config.v_reso/config.max_yawrate) and human.angular.z>0:
-        human_r=config.v_reso/config.max_yawrate-0.01
-    if (human_r> -config.v_reso/config.max_yawrate) and human.angular.z<0:
-        human_r=-config.v_reso/config.max_yawrate+0.01
-    if human.linear.x==0:
-        if human.angular.z>0:
-            human_r=config.v_reso/config.max_yawrate-0.01
-        if human.angular.z<0:
-            human_r=-config.v_reso/config.max_yawrate+0.01
+    # if human.angular.z == 0:
+    #     human_r=float("inf")
+    # else:
+    #     human_r=human.linear.x/human.angular.z
+    # if (human_r< config.v_reso/config.max_yawrate) and human.angular.z>0:
+    #     human_r=config.v_reso/config.max_yawrate-0.01
+    # if (human_r> -config.v_reso/config.max_yawrate) and human.angular.z<0:
+    #     human_r=-config.v_reso/config.max_yawrate+0.01
+    # if human.linear.x==0:
+    #     if human.angular.z>0:
+    #         human_r=config.v_reso/config.max_yawrate-0.01
+    #     if human.angular.z<0:
+    #         human_r=-config.v_reso/config.max_yawrate+0.01
     # 取正符号
 
 
@@ -397,7 +406,6 @@ def line(num):
 human=Twist()
 human_r=float("inf")
 ob_costly=Float64()
-# rangle=Float64()
 inputkey=0
 
 def main():
@@ -422,10 +430,6 @@ def main():
     sub_hum = rospy.Subscriber("/cmd_vel_human",Twist,share1,config,queue_size=1)
 
     pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
-
-    # robotangle_pub = rospy.Publisher('rangle', Float64, queue_size = 1)
-    robotx_pub = rospy.Publisher('x', Float64, queue_size = 1)
-    roboty_pub = rospy.Publisher('y', Float64, queue_size = 1)
 
     human_value_pub = rospy.Publisher('cost', Float64, queue_size = 1)
     pub_line = rospy.Publisher('~line_list', Marker, queue_size=100)
@@ -455,13 +459,10 @@ def main():
             speed.linear.x = human.linear.x
             speed.angular.z = human.angular.z
         pub.publish(speed)
-        human_value_pub.publish(ob_costly)
-        # robotangle_pub.publish(rangle)
-        robotx_pub.publish(config.x)
-        roboty_pub.publish(config.y)
+        #human_value_pub.publish(ob_costly)
         config.r.sleep()
 
 
 if __name__ == '__main__':
-    rospy.init_node('dwa')
+    rospy.init_node('shared_dwa')
     main()
