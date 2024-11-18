@@ -17,6 +17,7 @@ from geometry_msgs.msg import Twist, PointStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
+from distancetime import *
 
 class Config():
     # simulation parameters
@@ -41,8 +42,11 @@ class Config():
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
-        self.goalX = 0.0
+        self.goalX = 14.0
         self.goalY = 0.0
+        self.prev_x = 0.0
+        self.prev_y = 0.0
+        self.distance = 0.0
         self.r = rospy.Rate(20)
 
     # Callback for Odometry
@@ -54,6 +58,7 @@ class Config():
         (roll,pitch,theta) = \
             euler_from_quaternion ([rot_q.x,rot_q.y,rot_q.z,rot_q.w])
         self.th = theta
+        odom_callback(self)
 
     # Callback for attaining goal co-ordinates from Rviz Publish Point
     def goalCB(self,msg):
@@ -238,6 +243,7 @@ def atGoal(config, x):
         return True
     return False
 
+yici=1
 
 def main():
     print(__file__ + " start!!")
@@ -254,7 +260,7 @@ def main():
     x = np.array([config.x, config.y, config.th, 0.0, 0.0])
     # initial linear and angular velocities
     u = np.array([0.0, 0.0])
-
+    start_time = rospy.get_time()
     # runs until terminated externally
     while not rospy.is_shutdown():
         if (atGoal(config,x) == False):
@@ -268,6 +274,13 @@ def main():
             speed.angular.z = x[4]
         else:
             # if at goal then stay there until new goal published
+            if atGoal(config)==1:
+                global yici
+                if yici>0:
+                    print("YOU have arrive the goal point")
+                    get_time(start_time)
+                    print("当前总里程: %.2f 米" % config.distance)
+                    yici=0
             speed.linear.x = 0.0
             speed.angular.z = 0.0
 
