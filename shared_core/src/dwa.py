@@ -19,7 +19,7 @@ from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
 from std_msgs.msg import Float64
 from visualization_msgs.msg import Marker
-
+from distancetime import *
 
 class Config():
     # simulation parameters
@@ -51,8 +51,11 @@ class Config():
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
-        self.goalX = 0.0
+        self.goalX = 14.0
         self.goalY = 0.0
+        self.prev_x = 0.0
+        self.prev_y = 0.0
+        self.distance = 0.0
         self.r = rospy.Rate(20)
 
     # Callback for Odometry
@@ -65,6 +68,7 @@ class Config():
         (roll,pitch,theta) = \
             euler_from_quaternion ([rot_q.x,rot_q.y,rot_q.z,rot_q.w])
         self.th = theta
+        odom_callback(self)
         # global rangle
         # rangle=theta
 
@@ -316,9 +320,9 @@ def dwa_control(x, u, config, ob):
 
     return u
 
-def atGoal(config, x):
+def atGoal(config):
     # check at goal
-    if math.sqrt((x[0] - config.goalX)**2 + (x[1] - config.goalY)**2) \
+    if math.sqrt((config.x - config.goalX)**2 + (config.y - config.goalY)**2) \
         <= config.robot_radius:
         return 1
     return 0
@@ -408,6 +412,8 @@ def line(num):
         exec(f"line_point{i}.y = list_y[{i}]")
         exec(f"line_point{i}.z = 0.0")
         exec(f"marker.points.append(line_point{i})")
+
+
     
 
 
@@ -415,6 +421,7 @@ human=Twist()
 human_r=float("inf")
 ob_costly=Float64()
 inputkey=0
+yici=1
 
 def main():
     print(__file__ + " start!!")
@@ -428,6 +435,7 @@ def main():
             rospy.loginfo("input error,run as human")
             inputkey = 0
     # robot specification
+    
     config = Config()
     # position of obstacles
     obs = Obstacles()
@@ -441,18 +449,17 @@ def main():
 
     human_value_pub = rospy.Publisher('cost', Float64, queue_size = 1)
     pub_line = rospy.Publisher('~line_list', Marker, queue_size=100)
-
+    marker_pub = rospy.Publisher('visualization_marker', Marker, queue_size=10)
+    goal_sphere(config)
     speed = Twist()
     # initial state [x(m), y(m), theta(rad), v(m/s), omega(rad/s)]
     x = np.array([config.x, config.y, config.th, 0.0, 0.0])
     # initial linear and angular velocities
     u = np.array([0.0, 0.0])
-
+    start_time = rospy.get_time()
     # runs until terminated externally
     while not rospy.is_shutdown():
         if (inputkey== 1):
-            if atGoal(config, x)==1:
-                print("YOU have arrive the goal point")
             u = dwa_control(x, u, config, obs.obst)
             x[0] = config.x
             x[1] = config.y
@@ -468,7 +475,15 @@ def main():
             # if 0 then do directly
             speed.linear.x = human.linear.x
             speed.angular.z = human.angular.z
+        marker_pub.publish(markers)
         pub.publish(speed)
+        if atGoal(config)==1:
+            global yici
+            if yici>0:
+                print("YOU have arrive the goal point")
+                get_time(start_time)
+                print("当前总里程: %.2f 米" % config.distance)
+                yici=0
         #human_value_pub.publish(ob_costly)
         config.r.sleep()
 
