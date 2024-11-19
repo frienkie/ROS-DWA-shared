@@ -34,15 +34,17 @@ class Config():
         self.v_reso = 0.02  # [m/s]
         self.yawrate_reso = 0.05 # [rad/s]
         self.dt = 0.2  # [s]
-        self.predict_time = 4  # [s]
-        self.to_goal_cost_gain = 2.4 #lower = detour
+        self.predict_time = 4.0  # [s]
+
+        self.to_goal_cost_gain = 10 #lower = detour
         self.speed_cost_gain = 0.1 #lower = faster
-        self.obs_cost_gain = 3.2 #lower z= fearless
+        self.obs_cost_gain = 1 #lower z= fearless
+
         self.robot_radius = 0.11  # [m]
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
-        self.goalX = 14.0
+        self.goalX = 12.0
         self.goalY = 0.0
         self.prev_x = 0.0
         self.prev_y = 0.0
@@ -59,11 +61,6 @@ class Config():
             euler_from_quaternion ([rot_q.x,rot_q.y,rot_q.z,rot_q.w])
         self.th = theta
         odom_callback(self)
-
-    # Callback for attaining goal co-ordinates from Rviz Publish Point
-    def goalCB(self,msg):
-        self.goalX = msg.point.x
-        self.goalY = msg.point.y
 
 class Obstacles():
     def __init__(self):
@@ -182,7 +179,7 @@ def calc_final_input(x, u, dw, config, ob):
 
 # Calculate obstacle cost inf: collision, 0:free
 def calc_obstacle_cost(traj, ob, config):
-    skip_n = 2
+    skip_n = 1
     minr = float("inf")
 
     # Loop through every obstacle in set and calc Pythagorean distance
@@ -197,6 +194,7 @@ def calc_obstacle_cost(traj, ob, config):
             r = math.sqrt(dx**2 + dy**2)
 
             if r <= config.robot_radius:
+                # print("r",r)
                 return float("Inf")  # collision
 
             if minr >= r:
@@ -236,12 +234,12 @@ def dwa_control(x, u, config, ob):
     return u
 
 # Determine whether the robot has reached its goal
-def atGoal(config, x):
+def atGoal(config):
     # check at goal
-    if math.sqrt((x[0] - config.goalX)**2 + (x[1] - config.goalY)**2) \
+    if math.sqrt((config.x - config.goalX)**2 + (config.y - config.goalY)**2) \
         <= config.robot_radius:
-        return True
-    return False
+        return 1
+    return 0
 
 yici=1
 
@@ -263,7 +261,7 @@ def main():
     start_time = rospy.get_time()
     # runs until terminated externally
     while not rospy.is_shutdown():
-        if (atGoal(config,x) == False):
+        if (atGoal(config) == False):
             u = dwa_control(x, u, config, obs.obst)
             x[0] = config.x
             x[1] = config.y
@@ -272,20 +270,20 @@ def main():
             x[4] = u[1]
             speed.linear.x = x[3]
             speed.angular.z = x[4]
+            # print(x[0])
+            pub.publish(speed)
         else:
             # if at goal then stay there until new goal published
-            if atGoal(config)==1:
-                global yici
-                if yici>0:
-                    print("YOU have arrive the goal point")
-                    get_time(start_time)
-                    print("当前总里程: %.2f 米" % config.distance)
-                    yici=0
-            speed.linear.x = 0.0
-            speed.angular.z = 0.0
-
-        pub.publish(speed)
-        config.r.sleep()
+            global yici
+            if yici>0:
+                print("YOU have arrive the goal point")
+                get_time(start_time)
+                print("当前总里程: %.2f 米" % config.distance)
+                yici=0
+                speed.linear.x = 0.0
+                speed.angular.z = 0.0
+    
+            config.r.sleep()
 
 
 if __name__ == '__main__':
