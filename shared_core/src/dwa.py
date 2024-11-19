@@ -43,7 +43,7 @@ class Config():
         self.showdt = 0.2
         #########################################
         self.speed_cost_gain = 1.0 
-        self.obs_cost_gain = 1.2
+        self.obs_cost_gain = 0.5
         self.to_human_cost_gain =1.0
 
         #############################
@@ -197,8 +197,9 @@ def calc_angle_fromtraj(v, y, config):
         # store each motion model along a trajectory
         x = motion(x, [v, y], config.dt)
         time += config.showdt # next sample
-    if v==0:
+    if abs(v)<=0.0001:
         angle=y*1.0
+        # print(angle)
     else:
         angle=math.atan2(x[1], x[0])
     #print(angle)
@@ -357,7 +358,8 @@ def share1(vel_msg,config):# human command get 获取人类指令
     # human_angle=cal_angle(human.linear.x,human.angular.z)
 
     angle_human=calc_angle_fromtraj(human.linear.x,human.angular.z,config)
-    # print(human_angle)
+
+    # print(human.angular.z,angle_human)
 
     # if human.angular.z == 0:
     #     human_r=float("inf")
