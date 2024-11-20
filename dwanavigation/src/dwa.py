@@ -271,19 +271,19 @@ def main():
             speed.linear.x = x[3]
             speed.angular.z = x[4]
             # print(x[0])
-            pub.publish(speed)
+            
         else:
             # if at goal then stay there until new goal published
             global yici
             if yici>0:
                 print("YOU have arrive the goal point")
-                get_time(start_time)
-                print("当前总里程: %.2f 米" % config.distance)
+                save(get_time(start_time),config.distance)
+                print("distance in this time: %.2f m" % config.distance)
                 yici=0
                 speed.linear.x = 0.0
                 speed.angular.z = 0.0
-    
-            config.r.sleep()
+        pub.publish(speed)
+        config.r.sleep()
 
 
 if __name__ == '__main__':
