@@ -3,7 +3,8 @@
 import rospy
 import math
 from visualization_msgs.msg import Marker
-
+from openpyxl import Workbook, load_workbook # type: ignore
+import os
 markers = Marker()
 def goal_sphere(config):
     
@@ -40,7 +41,8 @@ def get_time(start_time):
 
     end_time = rospy.get_time()  # 获取结束时间
     elapsed_time = end_time - start_time  # 计算运行时间
-    print("程序运行时间: %.2f 秒" % elapsed_time)
+    print("spend time: %.2f 秒" % elapsed_time)
+    return elapsed_time
 
 
 def odom_callback(config):
@@ -55,3 +57,37 @@ def odom_callback(config):
     config.prev_y = config.y
     #print("当前总里程: %.2f 米", config.distance)
 
+def save(time,distance,n):
+    file_name = "/home/frienkie/result/data.xlsx"
+
+    # 检查文件是否存在
+    if os.path.exists(file_name):
+        # 如果文件存在，加载工作簿
+        workbook = load_workbook(file_name)
+        sheet = workbook.active
+    else:
+        # 如果文件不存在，创建新的工作簿
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Sheet1"
+
+    # 查找第一列中最后一行的行号
+    row = sheet.max_row + 1
+
+    # 需要写入的浮点数据（这里替换为你的数据）
+    data1 = time  # 示例浮点数
+    data2 = distance
+    # 格式化浮点数，保留两位小数
+    formatted_data1 = round(data1, 2)
+    formatted_data2 = round(data2, 2)
+    # 将数据写入第一列的下一行
+    if n==0:
+        sheet.cell(row=row, column=1, value=formatted_data1)
+        sheet.cell(row=row, column=2, value=formatted_data2)
+    else:
+        sheet.cell(row=row, column=5, value=formatted_data1)
+        sheet.cell(row=row, column=6, value=formatted_data2)
+    # 保存工作簿
+    workbook.save(file_name)
+
+    
