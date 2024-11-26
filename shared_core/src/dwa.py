@@ -20,6 +20,9 @@ from tf.transformations import euler_from_quaternion
 from std_msgs.msg import Float64
 from visualization_msgs.msg import Marker
 from distancetime import *
+import json
+
+
 
 class Config():
     # simulation parameters
@@ -30,7 +33,7 @@ class Config():
         #NOTE 0.55,0.1,1.0,1.6,3.2,0.15,0.05,0.1,1.7,2.4,0.1,3.2,0.18
         self.max_speed = 0.20  # [m/s]
         self.min_speed = 0.0  # [m/s]
-        self.max_yawrate = 0.4  # [rad/s]
+        self.max_yawrate = 0.6  # [rad/s]
 
         self.max_accel = 1.0  # [m/ss]
         self.max_dyawrate = 2.8  # [rad/ss]
@@ -56,6 +59,7 @@ class Config():
         self.prev_x = 0.0
         self.prev_y = 0.0
         self.distance = 0.0
+        self.xy = set()
         self.r = rospy.Rate(20)
 
     # Callback for Odometry
@@ -68,9 +72,9 @@ class Config():
         (roll,pitch,theta) = \
             euler_from_quaternion ([rot_q.x,rot_q.y,rot_q.z,rot_q.w])
         self.th = theta
+        self.xy.add((self.x,self.y))
         odom_callback(self)
-        # global rangle
-        # rangle=theta
+
 
 
     # Callback for attaining goal co-ordinates from Rviz Publish Point #rviz中设置目标点
@@ -82,6 +86,7 @@ class Obstacles():
     def __init__(self):
         # Set of coordinates of obstacles in view
         self.obst = set()
+        self.existing_coordinates = set()
 
     def assignObs1(self, msg, config):
 
@@ -117,8 +122,13 @@ class Obstacles():
 
             # all obastacle data
             self.obst.add((obsX,obsY))
+        # with open('/home/frienkie/cood/test', 'r') as f:
+        #     self.existing_coordinates = set(map(tuple, json.load(f)))
+        
+        # self.existing_coordinates = self.existing_coordinates.union(self.obst)
+        # with open('/home/frienkie/cood/test', 'w') as f:
+        #     json.dump(list(self.existing_coordinates), f)
         # print (self.obst)
-
 
 
 # Model to determine the expected position of the robot after moving along trajectory
@@ -324,7 +334,7 @@ def dwa_control(x, u, config, ob):
 def atGoal(config):
     # check at goal
     if math.sqrt((config.x - config.goalX)**2 + (config.y - config.goalY)**2) \
-        <= config.robot_radius:
+        <= config.robot_radius*4:
         return 1
     return 0
 
@@ -416,8 +426,6 @@ def line(num):
         exec(f"marker.points.append(line_point{i})")
 
 
-    
-
 
 human=Twist()
 human_r=float("inf")
@@ -441,6 +449,7 @@ def main():
     config = Config()
     # position of obstacles
     obs = Obstacles()
+    counter = StringMessageCounter()
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
     subLaser = rospy.Subscriber("/scan", LaserScan, obs.assignObs1, config)
 
@@ -449,7 +458,8 @@ def main():
 
     pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
 
-    human_value_pub = rospy.Publisher('cost', Float64, queue_size = 1)
+    # human_value_pub = rospy.Publisher('cost', Float64, queue_size = 1)
+    # sub_obs = rospy.Subscriber("/gazebo/base_collision",Contact,StringMessageCounter.callbackobs,queue_size=10)
     pub_line = rospy.Publisher('~line_list', Marker, queue_size=100)
     marker_pub = rospy.Publisher('visualization_marker', Marker, queue_size=10)
     goal_sphere(config)
@@ -458,6 +468,7 @@ def main():
     x = np.array([config.x, config.y, config.th, 0.0, 0.0])
     # initial linear and angular velocities
     u = np.array([0.0, 0.0])
+
     start_time = rospy.get_time()
     # runs until terminated externally
     while not rospy.is_shutdown():
@@ -483,10 +494,12 @@ def main():
             global yici
             if yici>0:
                 print("YOU have arrive the goal point")
-                save(get_time(start_time),config.distance,inputkey)
+                save(get_time(start_time),config.distance,counter.send_count,inputkey)
                 print("distance in this time: %.2f m" % config.distance)
+                print("hit time: %d " % counter.send_count)
+                with open('/home/frienkie/cood/test1', 'w') as f:
+                    json.dump(list(config.xy), f)
                 yici=0
-        #human_value_pub.publish(ob_costly)
         config.r.sleep()
 
 

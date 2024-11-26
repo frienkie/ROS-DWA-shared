@@ -5,6 +5,7 @@ import math
 from visualization_msgs.msg import Marker
 from openpyxl import Workbook, load_workbook # type: ignore
 import os
+from gazebo_model_collision_plugin.msg import Contact
 markers = Marker()
 def goal_sphere(config):
     
@@ -27,9 +28,9 @@ def goal_sphere(config):
     markers.pose.orientation.z = 0.0
     markers.pose.orientation.w = 1.0
 
-    markers.scale.x = config.robot_radius  # 球体在 x 方向的大小
-    markers.scale.y = config.robot_radius  # 球体在 y 方向的大小
-    markers.scale.z = config.robot_radius  # 球体在 z 方向的大小
+    markers.scale.x = config.robot_radius*4  # 球体在 x 方向的大小
+    markers.scale.y = config.robot_radius*4  # 球体在 y 方向的大小
+    markers.scale.z = config.robot_radius*4  # 球体在 z 方向的大小
 
     # 设置颜色
     markers.color.r = 0.0  # 红色分量
@@ -57,7 +58,7 @@ def odom_callback(config):
     config.prev_y = config.y
     #print("当前总里程: %.2f 米", config.distance)
 
-def save(time,distance,n):
+def save(time,distance,count,n):
     file_name = "/home/frienkie/result/data.xlsx"
 
     # 检查文件是否存在
@@ -70,24 +71,52 @@ def save(time,distance,n):
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "Sheet1"
-
+    row=1
     # 查找第一列中最后一行的行号
-    row = sheet.max_row + 1
 
     # 需要写入的浮点数据（这里替换为你的数据）
     data1 = time  # 示例浮点数
     data2 = distance
+    data3 = count
     # 格式化浮点数，保留两位小数
     formatted_data1 = round(data1, 2)
     formatted_data2 = round(data2, 2)
     # 将数据写入第一列的下一行
     if n==0:
+        for cell in sheet['A']:
+            if cell.value is not None:
+                row += 1
         sheet.cell(row=row, column=1, value=formatted_data1)
         sheet.cell(row=row, column=2, value=formatted_data2)
+        sheet.cell(row=row, column=3, value=data3)
     else:
-        sheet.cell(row=row, column=5, value=formatted_data1)
-        sheet.cell(row=row, column=6, value=formatted_data2)
+        for cell in sheet['G']:
+            if cell.value is not None:
+                row += 1
+        sheet.cell(row=row, column=7, value=formatted_data1)
+        sheet.cell(row=row, column=8, value=formatted_data2)
+        sheet.cell(row=row, column=9, value=data3)
     # 保存工作簿
     workbook.save(file_name)
 
     
+class StringMessageCounter:
+    def __init__(self):
+        # 设置监听的时间间隔
+        self.inactive_threshold = rospy.get_param("~inactive_threshold", 2.0)  # 秒
+        self.last_message_time = None
+        self.send_count = 0
+        rospy.Subscriber("/gazebo/base_collision",Contact,self.callbackobs,queue_size=10)
+
+
+    def callbackobs(self,msg):
+        current_time = rospy.get_time()
+        
+        # 判断是否是新的一次发送
+        if self.last_message_time is None or \
+           (current_time - self.last_message_time) > self.inactive_threshold:
+            self.send_count += 1
+            print(f"New message batch detected. Total count: {self.send_count}")
+        
+        # 更新最后消息接收时间
+        self.last_message_time = current_time
