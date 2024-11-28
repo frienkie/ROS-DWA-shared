@@ -28,7 +28,7 @@ class Config():
         #NOTE 0.55,0.1,1.0,1.6,3.2,0.15,0.05,0.1,1.7,2.4,0.1,3.2,0.18
         self.max_speed = 0.2  # [m/s]
         self.min_speed = 0  # [m/s]
-        self.max_yawrate = 0.4  # [rad/s]
+        self.max_yawrate = 0.6  # [rad/s]
         self.max_accel = 1.0  # [m/ss]
         self.max_dyawrate = 3.2  # [rad/ss]
         self.v_reso = 0.02  # [m/s]
@@ -44,7 +44,7 @@ class Config():
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
-        self.goalX = 12.0
+        self.goalX = 14.0
         self.goalY = 0.0
         self.prev_x = 0.0
         self.prev_y = 0.0
@@ -237,7 +237,7 @@ def dwa_control(x, u, config, ob):
 def atGoal(config):
     # check at goal
     if math.sqrt((config.x - config.goalX)**2 + (config.y - config.goalY)**2) \
-        <= config.robot_radius:
+        <= config.robot_radius*4:
         return 1
     return 0
 
@@ -249,6 +249,7 @@ def main():
     config = Config()
     # position of obstacles
     obs = Obstacles()
+    counter = StringMessageCounter()
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
     subLaser = rospy.Subscriber("/scan", LaserScan, obs.assignObs, config)
     #subGoal = rospy.Subscriber("/clicked_point", PointStamped, config.goalCB)
@@ -277,8 +278,9 @@ def main():
             global yici
             if yici>0:
                 print("YOU have arrive the goal point")
-                save(get_time(start_time),config.distance)
+                save(get_time(start_time),config.distance,counter.send_count)
                 print("distance in this time: %.2f m" % config.distance)
+                print("hit time: %d " % counter.send_count)
                 yici=0
                 speed.linear.x = 0.0
                 speed.angular.z = 0.0
