@@ -103,7 +103,7 @@ def save(time,distance,count,n):
 class StringMessageCounter:
     def __init__(self):
         # 设置监听的时间间隔
-        self.inactive_threshold = rospy.get_param("~inactive_threshold", 2.0)  # 秒
+        self.inactive_threshold = 2.0  # 秒
         self.last_message_time = None
         self.send_count = 0
         rospy.Subscriber("/gazebo/base_collision",Contact,self.callbackobs,queue_size=10)
