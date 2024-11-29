@@ -6,7 +6,10 @@ from visualization_msgs.msg import Marker
 from openpyxl import Workbook, load_workbook # type: ignore
 import os
 from gazebo_model_collision_plugin.msg import Contact
+import random
+
 markers = Marker()
+yici = 1
 def goal_sphere(config):
     
     global markers
@@ -120,3 +123,4 @@ class StringMessageCounter:
         
         # 更新最后消息接收时间
         self.last_message_time = current_time
+
