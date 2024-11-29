@@ -19,6 +19,7 @@ from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
 from distancetime import *
 
+
 class Config():
     # simulation parameters
 
@@ -27,11 +28,11 @@ class Config():
         #NOTE good params:
         #NOTE 0.55,0.1,1.0,1.6,3.2,0.15,0.05,0.1,1.7,2.4,0.1,3.2,0.18
         self.max_speed = 0.2  # [m/s]
-        self.min_speed = 0  # [m/s]
+        self.min_speed = -0.2  # [m/s]
         self.max_yawrate = 0.6  # [rad/s]
         self.max_accel = 1.0  # [m/ss]
         self.max_dyawrate = 3.2  # [rad/ss]
-        self.v_reso = 0.02  # [m/s]
+        self.v_reso = 0.05  # [m/s]
         self.yawrate_reso = 0.05 # [rad/s]
         self.dt = 0.2  # [s]
         self.predict_time = 4.0  # [s]
@@ -243,15 +244,80 @@ def atGoal(config):
 
 yici=1
 
+class RandomNumberGenerator:
+    def __init__(self):
+        self.numbers = list(range(1, 4))  # 数字列表
+        self.index = 0  # 当前索引
+        self.toggle = False  # 控制交替返回数字和 0
+        self.shuffled = False  # 是否已打乱数字列表
+        self.finished = False  # 标志数字列表是否已完全遍历
+
+    def get_next(self):
+        global yici
+
+        # 如果尚未打乱数字列表，进行随机排列
+        if not self.shuffled:
+            random.shuffle(self.numbers)
+            self.shuffled = True
+
+        # 如果数字列表尚未完全遍历
+        if self.index < len(self.numbers):
+            if self.toggle:
+                current_number = 0  # 返回间隔 0
+                yici = 1  # 间隔 0 时 yici 为 1
+            else:
+                current_number = self.numbers[self.index]  # 返回当前数字
+                self.index += 1
+            self.toggle = not self.toggle
+        else:
+            # 所有数字生成完
+            if not self.finished:
+                current_number = 0  # 最后的间隔 0
+                yici = 1  # 此时 yici 为 1
+                self.finished = True  # 标志遍历结束
+            else:
+                current_number = 0  # 持续返回 0
+                yici = 0  # 列表完全遍历完后 yici 为 0
+
+        return current_number
+
+
+
+def change_goal(config,n):
+    global yici
+    if n==0:
+        config.goalX=0.0
+        config.goalY=3.0
+    if n==1:
+        config.goalX=9.0
+        config.goalY=-5.56
+    if n==2:
+        config.goalX=-9.46
+        config.goalY=-19.0
+    if n==3:
+        config.goalX=-1.7
+        config.goalY=-11.3
+    if n==4:
+        config.goalX=1.0
+        config.goalY=3.0
+    if n==5:
+        config.goalX=-1.0
+        config.goalY=3.0
+    if yici==1:
+        print(n)
+
+
 def main():
     print(__file__ + " start!!")
     # robot specification
     config = Config()
     # position of obstacles
     obs = Obstacles()
+    rand=RandomNumberGenerator()
     counter = StringMessageCounter()
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
     subLaser = rospy.Subscriber("/scan", LaserScan, obs.assignObs, config)
+    marker_pub = rospy.Publisher('visualization_marker', Marker, queue_size=10)
     #subGoal = rospy.Subscriber("/clicked_point", PointStamped, config.goalCB)
     pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
     speed = Twist()
@@ -259,6 +325,9 @@ def main():
     x = np.array([config.x, config.y, config.th, 0.0, 0.0])
     # initial linear and angular velocities
     u = np.array([0.0, 0.0])
+    change_goal(config,rand.get_next())
+    goal_sphere(config)
+
     start_time = rospy.get_time()
     # runs until terminated externally
     while not rospy.is_shutdown():
@@ -282,9 +351,11 @@ def main():
                 print("distance in this time: %.2f m" % config.distance)
                 print("hit time: %d " % counter.send_count)
                 yici=0
-                speed.linear.x = 0.0
-                speed.angular.z = 0.0
+                start_time = rospy.get_time()
+            change_goal(config,rand.get_next())
+            goal_sphere(config)
         pub.publish(speed)
+        marker_pub.publish(markers)
         config.r.sleep()
 
 

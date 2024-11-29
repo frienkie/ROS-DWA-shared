@@ -6,6 +6,7 @@ from visualization_msgs.msg import Marker
 from openpyxl import Workbook, load_workbook # type: ignore
 import os
 from gazebo_model_collision_plugin.msg import Contact
+import random
 markers = Marker()
 def goal_sphere(config):
     
