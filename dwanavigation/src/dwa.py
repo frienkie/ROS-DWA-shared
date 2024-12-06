@@ -37,8 +37,8 @@ class Config():
         self.dt = 0.2  # [s]
         self.predict_time = 4.0  # [s]
 
-        self.to_goal_cost_gain = 4.0 #lower = detour
-        self.speed_cost_gain = 8.0 #lower = faster
+        self.to_goal_cost_gain = 8.0 #lower = detour
+        self.speed_cost_gain = 4.0 #lower = faster
         self.obs_cost_gain = 4.0 #lower z= fearless
 
         self.robot_radius = 0.108  # [m]
@@ -160,8 +160,8 @@ def calc_final_input(x, u, dw, config, ob):
     max_u[0] = 0.0
 
     # evaluate all trajectory with sampled input in dynamic window
-    for v in np.arange(dw[0], dw[1], config.v_reso):
-        for w in np.arange(dw[2], dw[3], config.yawrate_reso):
+    for v in np.arange(dw[0], dw[1]+config.v_reso, config.v_reso):
+        for w in np.arange(dw[2], dw[3]+config.yawrate_reso, config.yawrate_reso):
             traj = calc_trajectory(xinit, v, w, config)
 
             # calc costs with weighted gains
@@ -169,7 +169,7 @@ def calc_final_input(x, u, dw, config, ob):
 
             to_goal_cost=config.to_goal_cost_gain * (1-calc_heading_angle_cost(traj, config.goalX, config.goalY)/math.pi)
             
-            speed_cost = config.speed_cost_gain * abs(traj[-1, 3]/config.max_speed)
+            speed_cost = config.speed_cost_gain * abs(v/config.max_speed)
 
             ob_cost = calc_obstacle_cost(traj, ob, config) * config.obs_cost_gain
 
@@ -182,6 +182,7 @@ def calc_final_input(x, u, dw, config, ob):
             if max_cost <= final_cost:
                 max_cost = final_cost
                 max_u = [v, w]
+
     return max_u
 
 def angle_range_corrector(angle):
