@@ -7,6 +7,9 @@ from openpyxl import Workbook, load_workbook # type: ignore
 import os
 from gazebo_model_collision_plugin.msg import Contact
 import random
+from gazebo_msgs.srv import SetModelState
+from gazebo_msgs.msg import ModelState
+
 
 markers = Marker()
 yici = 1
@@ -124,3 +127,36 @@ class StringMessageCounter:
         # 更新最后消息接收时间
         self.last_message_time = current_time
 
+def set_robot_position(model_name, position, orientation):
+    """
+    瞬间移动机器人到指定坐标
+    :param model_name: 模型名称 (例如 "robot")
+    :param position: 坐标 [x, y, z]
+    :param orientation: 四元数 [x, y, z, w]
+    """
+    # 等待服务
+    rospy.wait_for_service('/gazebo/set_model_state')
+    
+    try:
+        # 创建服务代理
+        set_state = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
+        
+        # 定义模型状态
+        state_msg = ModelState()
+        state_msg.model_name = model_name
+        state_msg.pose.position.x = position[0]
+        state_msg.pose.position.y = position[1]
+        state_msg.pose.position.z = position[2]
+        state_msg.pose.orientation.x = orientation[0]
+        state_msg.pose.orientation.y = orientation[1]
+        state_msg.pose.orientation.z = orientation[2]
+        state_msg.pose.orientation.w = orientation[3]
+        
+        # 调用服务
+        resp = set_state(state_msg)
+        if resp.success:
+            rospy.loginfo(f"Successfully moved {model_name} to {position}")
+        else:
+            rospy.logwarn(f"Failed to move {model_name}: {resp.status_message}")
+    except rospy.ServiceException as e:
+        rospy.logerr(f"Service call failed: {e}")

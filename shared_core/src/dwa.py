@@ -32,29 +32,30 @@ class Config():
         #NOTE good params:
         #NOTE 0.55,0.1,1.0,1.6,3.2,0.15,0.05,0.1,1.7,2.4,0.1,3.2,0.18
         self.max_speed = 0.20  # [m/s]
-        self.min_speed = -0.20  # [m/s]
+        self.min_speed = 0.0  # [m/s]
         self.max_yawrate = 0.6  # [rad/s]
 
         self.max_accel = 1.0  # [m/ss]
         self.max_dyawrate = 2.8  # [rad/ss]
         ##################################################33
         self.v_reso = 0.04  # [m/s]
-        self.yawrate_reso = 0.05  # [rad/s]
+        self.yawrate_reso = 0.04  # [rad/s]
         #######################################################
-        self.dt = 0.2  # [s]
-        self.predict_time = 4.0  # [s]
-        self.showdt = 0.2
+        self.dt = 0.5  # [s]
+        self.predict_time = 3.0  # [s]
+        self.showpredict_time = 4.5  # [s]
+        self.showdt = 1.0
         #########################################
-        self.speed_cost_gain = 1.0 
-        self.obs_cost_gain = 0
-        self.to_human_cost_gain =1.0
+        self.speed_cost_gain = 1.5 
+        self.obs_cost_gain = 1.0
+        self.to_human_cost_gain =0.5
 
         #############################
-        self.robot_radius = 0.100  # [m]
+        self.robot_radius = 0.106  # [m]
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
-        self.goalX = 14.0
+        self.goalX = 0.0
         self.goalY = 0.0
         self.prev_x = 0.0
         self.prev_y = 0.0
@@ -72,7 +73,7 @@ class Config():
         (roll,pitch,theta) = \
             euler_from_quaternion ([rot_q.x,rot_q.y,rot_q.z,rot_q.w])
         self.th = theta
-        self.xy.add((self.x,self.y))
+        # self.xy.add((self.x,self.y))
         odom_callback(self)
 
 
@@ -173,7 +174,7 @@ def show_trajectory(xinit, v, y, config):
     list_x.clear()
     list_y.clear()
 
-    while time <= config.predict_time:
+    while time <= config.showpredict_time:
         # store each motion model along a trajectory
         x = motion(x, [v, y], config.dt)
         list_x.append(x[0])
@@ -193,7 +194,7 @@ def calc_trajectory(xinit, v, y, config):
         # store each motion model along a trajectory
         x = motion(x, [v, y], config.dt)
         traj = np.vstack((traj, x))
-        time += config.showdt # next sample
+        time += config.dt # next sample
 
     return traj
 
@@ -230,14 +231,14 @@ def calc_final_input(x, u, dw, config, ob):
     max_u[1] = human.angular.z
     global ob_costly,angle_robot
     # evaluate all trajectory with sampled input in dynamic window
-    for v in np.arange(0.0, config.max_speed+config.v_reso, config.v_reso):
+    for v in np.arange(config.min_speed, config.max_speed+config.v_reso, config.v_reso):
         for w in np.arange(-config.max_yawrate, config.max_yawrate+config.yawrate_reso, config.yawrate_reso):
             traj = calc_trajectory(xinit, v, w, config)
             
             # calc costs with weighted gains
             to_human_cost = (1-calc_to_human_cost(v,w,config,4)) * config.to_human_cost_gain
 
-            speed_cost = config.speed_cost_gain *(1-abs(human.linear.x - v)/0.2)
+            speed_cost = config.speed_cost_gain *(1-abs(human.linear.x - v)/(config.max_speed-config.min_speed))
 
             ob_cost = calc_obstacle_cost(traj, ob, config) * config.obs_cost_gain
 
@@ -254,8 +255,7 @@ def calc_final_input(x, u, dw, config, ob):
     # print(ob_costly)
     # print(max_u[0],max_u[1])
     show_trajectory(xinit, max_u[0], max_u[1], config)
-    if human.linear.x<=0.001 and human.linear.x>=-0.001:
-        max_u[0] = 0.0
+    
     return max_u
 #################################################################################
 
@@ -268,7 +268,7 @@ def calc_obstacle_cost(traj, ob, config):
     
     # Loop through every obstacle in set and calc Pythagorean distance
     # Use robot radius to determine if collision
-    for ii in range(0, len(traj[:, 1]), skip_n):
+    for ii in range(2, len(traj[:, 1]), skip_n):
         for i in ob.copy():
             ox = i[0]           ##障害物
             oy = i[1]
@@ -312,7 +312,7 @@ def calc_to_human_cost( v, w,config,n):
         cost=abs(angle_human-angle_robot)/math.pi
     elif n==4:
         robot_angle=w
-        cost = abs(human_angle-robot_angle)/config.max_yawrate*2
+        cost = abs(human_angle-robot_angle)/(config.max_yawrate*2)
     else:
         robot_angle=cal_angle(v,w)
         cost = abs(human_angle-robot_angle)/math.pi
@@ -362,6 +362,8 @@ def share1(vel_msg,config):# human command get 获取人类指令
     global human_angle
     global angle_human
 
+    
+
     human.linear.x=vel_msg.linear.x
 
     # if inputkey==1:
@@ -371,6 +373,8 @@ def share1(vel_msg,config):# human command get 获取人类指令
 
     human_angle=human.angular.z
 
+    if human.linear.x<=0.001 and human.linear.x>=-0.001:
+        human.linear.x = 0.0
     # human_angle=cal_angle(human.linear.x,human.angular.z)
 
     # angle_human=calc_angle_fromtraj(human.linear.x,human.angular.z,config)
@@ -433,10 +437,11 @@ def line(num):
 
 class RandomNumberGenerator:
     def __init__(self):
-        self.numbers = list(range(1, 2))  # 数字列表
+        # self.numbers = list(range(4, 6))  # 数字列表
+        self.numbers = list(range(1, 2))
         self.index = 0  # 当前索引
         self.toggle = False  # 控制交替返回数字和 0
-        self.shuffled = False  # 是否已打乱数字列表
+        self.shuffled = True  # 是否已打乱数字列表
         self.finished = False  # 标志数字列表是否已完全遍历
 
     def get_next(self):
@@ -449,21 +454,21 @@ class RandomNumberGenerator:
 
         # 如果数字列表尚未完全遍历
         if self.index < len(self.numbers):
-            if self.toggle:
-                current_number = 0  # 返回间隔 0
-                yici = 1  # 间隔 0 时 yici 为 1
-            else:
+            # if self.toggle:
+            #     current_number = 0  # 返回间隔 0
+            #     yici = 1  # 间隔 0 时 yici 为 1
+            # else:
                 current_number = self.numbers[self.index]  # 返回当前数字
                 self.index += 1
-            self.toggle = not self.toggle
+            # self.toggle = not self.toggle
         else:
             # 所有数字生成完
             if not self.finished:
-                current_number = 0  # 最后的间隔 0
-                yici = 1  # 此时 yici 为 1
+                current_number = 1  # 最后的间隔 0
+                yici = 0  # 此时 yici 为 0
                 self.finished = True  # 标志遍历结束
             else:
-                current_number = 0  # 持续返回 0
+                current_number = 1  # 持续返回 0
                 yici = 0  # 列表完全遍历完后 yici 为 0
 
         return current_number
@@ -473,23 +478,23 @@ class RandomNumberGenerator:
 def change_goal(config,n):
     global yici
     if n==0:
-        config.goalX=0.0
-        config.goalY=3.0
+        config.goalX=-3.6
+        config.goalY=-3.0
     if n==1:
-        config.goalX=9.0
-        config.goalY=-5.56
+        config.goalX=-3.8
+        config.goalY=8.5
     if n==2:
-        config.goalX=-9.46
-        config.goalY=-19.0
+        config.goalX=-4.0
+        config.goalY=-3.0
     if n==3:
-        config.goalX=-1.7
-        config.goalY=-11.3
+        config.goalX=-3.7
+        config.goalY=5.9
     if n==4:
-        config.goalX=1.0
-        config.goalY=3.0
+        config.goalX=-6.0
+        config.goalY=6.0
     if n==5:
-        config.goalX=-1.0
-        config.goalY=3.0
+        config.goalX=6.0
+        config.goalY=6.0
     if yici==1:
         print(n)
 
@@ -516,6 +521,13 @@ def main():
     # position of obstacles
     obs = Obstacles()
     counter = StringMessageCounter()
+
+    model_name = "turtlebot3"
+    # 指定目标位置和方向 (四元数)
+    target_position = [-3.6, -3.0, 0.0]  # x, y, z
+    target_orientation = [0.0, 0.0, 0.707,  0.707]  # x, y, z, w
+    set_robot_position(model_name, target_position, target_orientation)
+
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
     subLaser = rospy.Subscriber("/scan", LaserScan, obs.assignObs1, config)
 
@@ -526,7 +538,7 @@ def main():
 
     # human_value_pub = rospy.Publisher('cost', Float64, queue_size = 1)
     # sub_obs = rospy.Subscriber("/gazebo/base_collision",Contact,StringMessageCounter.callbackobs,queue_size=10)
-    pub_line = rospy.Publisher('~line_list', Marker, queue_size=100)
+    pub_line = rospy.Publisher('~line_list', Marker, queue_size=10)
     marker_pub = rospy.Publisher('visualization_marker', Marker, queue_size=10)
     
     speed = Twist()
@@ -569,7 +581,7 @@ def main():
                 print("hit time: %d " % counter.send_count)
                 with open('/home/frienkie/cood/test1', 'w') as f:
                     json.dump(list(config.xy), f)
-                start_time = rospy.get_time()
+                # start_time = rospy.get_time()
                 
             change_goal(config,rand.get_next())
             goal_sphere(config)
