@@ -28,20 +28,20 @@ class Config():
         #NOTE good params:
         #NOTE 0.55,0.1,1.0,1.6,3.2,0.15,0.05,0.1,1.7,2.4,0.1,3.2,0.18
         self.max_speed = 0.2  # [m/s]
-        self.min_speed = -0.2  # [m/s]
+        self.min_speed = 0.0  # [m/s]
         self.max_yawrate = 0.6  # [rad/s]
         self.max_accel = 1.0  # [m/ss]
         self.max_dyawrate = 3.2  # [rad/ss]
-        self.v_reso = 0.05  # [m/s]
-        self.yawrate_reso = 0.05 # [rad/s]
+        self.v_reso = 0.04  # [m/s]
+        self.yawrate_reso = 0.04 # [rad/s]
         self.dt = 0.2  # [s]
         self.predict_time = 4.0  # [s]
 
-        self.to_goal_cost_gain = 10 #lower = detour
-        self.speed_cost_gain = 0.1 #lower = faster
-        self.obs_cost_gain = 1 #lower z= fearless
+        self.to_goal_cost_gain = 4.0 #lower = detour
+        self.speed_cost_gain = 8.0 #lower = faster
+        self.obs_cost_gain = 4.0 #lower z= fearless
 
-        self.robot_radius = 0.11  # [m]
+        self.robot_radius = 0.108  # [m]
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
@@ -61,6 +61,7 @@ class Config():
         (roll,pitch,theta) = \
             euler_from_quaternion ([rot_q.x,rot_q.y,rot_q.z,rot_q.w])
         self.th = theta
+        # print(self.th)
         odom_callback(self)
 
 class Obstacles():
@@ -154,9 +155,9 @@ def calc_trajectory(xinit, v, y, config):
 def calc_final_input(x, u, dw, config, ob):
 
     xinit = x[:]
-    min_cost = 10000.0
-    min_u = u
-    min_u[0] = 0.0
+    max_cost = 0.0
+    max_u = u
+    max_u[0] = 0.0
 
     # evaluate all trajectory with sampled input in dynamic window
     for v in np.arange(dw[0], dw[1], config.v_reso):
@@ -164,44 +165,73 @@ def calc_final_input(x, u, dw, config, ob):
             traj = calc_trajectory(xinit, v, w, config)
 
             # calc costs with weighted gains
-            to_goal_cost = calc_to_goal_cost(traj, config) * config.to_goal_cost_gain
-            speed_cost = config.speed_cost_gain * \
-                (config.max_speed - traj[-1, 3])
+            # to_goal_cost = calc_to_goal_cost(traj, config) * config.to_goal_cost_gain
+
+            to_goal_cost=config.to_goal_cost_gain * (1-calc_heading_angle_cost(traj, config.goalX, config.goalY)/math.pi)
+            
+            speed_cost = config.speed_cost_gain * abs(traj[-1, 3]/config.max_speed)
 
             ob_cost = calc_obstacle_cost(traj, ob, config) * config.obs_cost_gain
+
+            if np.isinf(ob_cost):
+                continue
 
             final_cost = to_goal_cost + speed_cost + ob_cost
 
             # search minimum trajectory
-            if min_cost >= final_cost:
-                min_cost = final_cost
-                min_u = [v, w]
-    return min_u
+            if max_cost <= final_cost:
+                max_cost = final_cost
+                max_u = [v, w]
+    return max_u
+
+def angle_range_corrector(angle):
+
+    if angle > math.pi:
+        while angle > math.pi:
+            angle -=  2 * math.pi
+    elif angle < -math.pi:
+        while angle < -math.pi:
+            angle += 2 * math.pi
+
+    return angle
+
+def calc_heading_angle_cost(traj, goal_x, goal_y):
+        last_x = traj[-1,0]
+        last_y = traj[-1,1]
+        last_th = traj[-1,2]
+
+        angle_to_goal = math.atan2(goal_y - last_y, goal_x - last_x)
+
+        score_angle = angle_to_goal - last_th
+
+        score_angle = abs(angle_range_corrector(score_angle))
+
+        return score_angle
 
 # Calculate obstacle cost inf: collision, 0:free
 def calc_obstacle_cost(traj, ob, config):
     skip_n = 1
-    minr = float("inf")
-
+    minr = 3.5
+    
     # Loop through every obstacle in set and calc Pythagorean distance
     # Use robot radius to determine if collision
-    for ii in range(0, len(traj[:, 1]), skip_n):
+    for ii in range(1, len(traj[:, 1]), skip_n):
         for i in ob.copy():
-            ox = i[0]
+            ox = i[0]           ##障害物
             oy = i[1]
-            dx = traj[ii, 0] - ox
+            dx = traj[ii, 0] - ox    ##轨迹
             dy = traj[ii, 1] - oy
 
-            r = math.sqrt(dx**2 + dy**2)
+            r = math.sqrt(dx**2 + dy**2)  ##距离
 
             if r <= config.robot_radius:
-                # print("r",r)
-                return float("Inf")  # collision
+                return float("-Inf")  # collision
 
             if minr >= r:
                 minr = r
 
-    return 1.0 / minr
+
+    return (minr-0.12)/3.38
 
 # Calculate goal cost via Pythagorean distance to robot
 def calc_to_goal_cost(traj, config):
@@ -246,10 +276,11 @@ yici=1
 
 class RandomNumberGenerator:
     def __init__(self):
-        self.numbers = list(range(1, 4))  # 数字列表
+        # self.numbers = list(range(4, 6))  # 数字列表
+        self.numbers = list(range(1, 2))
         self.index = 0  # 当前索引
         self.toggle = False  # 控制交替返回数字和 0
-        self.shuffled = False  # 是否已打乱数字列表
+        self.shuffled = True  # 是否已打乱数字列表
         self.finished = False  # 标志数字列表是否已完全遍历
 
     def get_next(self):
@@ -262,21 +293,21 @@ class RandomNumberGenerator:
 
         # 如果数字列表尚未完全遍历
         if self.index < len(self.numbers):
-            if self.toggle:
-                current_number = 0  # 返回间隔 0
-                yici = 1  # 间隔 0 时 yici 为 1
-            else:
+            # if self.toggle:
+            #     current_number = 0  # 返回间隔 0
+            #     yici = 1  # 间隔 0 时 yici 为 1
+            # else:
                 current_number = self.numbers[self.index]  # 返回当前数字
                 self.index += 1
-            self.toggle = not self.toggle
+            # self.toggle = not self.toggle
         else:
             # 所有数字生成完
             if not self.finished:
-                current_number = 0  # 最后的间隔 0
-                yici = 1  # 此时 yici 为 1
+                current_number = 1  # 最后的间隔 0
+                yici = 0  # 此时 yici 为 1
                 self.finished = True  # 标志遍历结束
             else:
-                current_number = 0  # 持续返回 0
+                current_number = 1  # 持续返回 0
                 yici = 0  # 列表完全遍历完后 yici 为 0
 
         return current_number
@@ -286,26 +317,25 @@ class RandomNumberGenerator:
 def change_goal(config,n):
     global yici
     if n==0:
-        config.goalX=0.0
-        config.goalY=3.0
+        config.goalX=-3.6
+        config.goalY=-3.0
     if n==1:
-        config.goalX=9.0
-        config.goalY=-5.56
+        config.goalX=-3.8
+        config.goalY=8.5
     if n==2:
-        config.goalX=-9.46
-        config.goalY=-19.0
+        config.goalX=-4.0
+        config.goalY=-3.0
     if n==3:
-        config.goalX=-1.7
-        config.goalY=-11.3
+        config.goalX=-3.7
+        config.goalY=5.9
     if n==4:
-        config.goalX=1.0
-        config.goalY=3.0
+        config.goalX=-6.0
+        config.goalY=6.0
     if n==5:
-        config.goalX=-1.0
-        config.goalY=3.0
+        config.goalX=6.0
+        config.goalY=6.0
     if yici==1:
         print(n)
-
 
 def main():
     print(__file__ + " start!!")
@@ -315,6 +345,13 @@ def main():
     obs = Obstacles()
     rand=RandomNumberGenerator()
     counter = StringMessageCounter()
+
+    model_name = "turtlebot3"
+    # 指定目标位置和方向 (四元数)
+    target_position = [-3.6, -3.0, 0.0]  # x, y, z
+    target_orientation = [0.0, 0.0, 0.707,  0.707]  # x, y, z, w
+    set_robot_position(model_name, target_position, target_orientation)
+
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
     subLaser = rospy.Subscriber("/scan", LaserScan, obs.assignObs, config)
     marker_pub = rospy.Publisher('visualization_marker', Marker, queue_size=10)
@@ -350,8 +387,8 @@ def main():
                 save(get_time(start_time),config.distance,counter.send_count)
                 print("distance in this time: %.2f m" % config.distance)
                 print("hit time: %d " % counter.send_count)
-                yici=0
-                start_time = rospy.get_time()
+
+
             change_goal(config,rand.get_next())
             goal_sphere(config)
         pub.publish(speed)
