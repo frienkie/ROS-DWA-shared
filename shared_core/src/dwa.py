@@ -21,8 +21,14 @@ from std_msgs.msg import Float64
 from visualization_msgs.msg import Marker
 from distancetime import *
 import json
+import argparse
+parser = argparse.ArgumentParser(description="设置参数")
 
+# 添加参数
+parser.add_argument("--param", type=int, required=True, help="参数值")
 
+# 解析参数
+args = parser.parse_args()
 
 class Config():
     # simulation parameters
@@ -46,10 +52,21 @@ class Config():
         self.showpredict_time = 4.5  # [s]
         self.showdt = 1.0
         #########################################
-        self.speed_cost_gain = 1.5 
-        self.obs_cost_gain = 1.0
-        self.to_human_cost_gain =0.5
-
+        # self.speed_cost_gain = 1.5 
+        # self.obs_cost_gain = 1.0
+        # self.to_human_cost_gain =0.5
+        if args.param == 1:
+            self.to_human_cost_gain = 1.0 #lower = detour
+            self.speed_cost_gain = 2.0 #lower = faster
+            self.obs_cost_gain = 1.0 #lower z= fearless
+        if args.param == 2:
+            self.to_human_cost_gain = 1.0 #lower = detour
+            self.speed_cost_gain = 1.0 #lower = faster
+            self.obs_cost_gain = 2.0 #lower z= fearless
+        if args.param == 3:
+            self.to_human_cost_gain = 2.0 #lower = detour
+            self.speed_cost_gain = 1.0 #lower = faster
+            self.obs_cost_gain = 1.0 #lower z= fearless
         #############################
         self.robot_radius = 0.106  # [m]
         self.x = 0.0
@@ -576,7 +593,7 @@ def main():
 
             if yici>0:
                 print("YOU have arrive the goal point")
-                save(get_time(start_time),config.distance,counter.send_count,inputkey)
+                save(get_time(start_time),config.distance,counter.send_count,inputkey,args.param)
                 print("distance in this time: %.2f m" % config.distance)
                 print("hit time: %d " % counter.send_count)
                 with open('/home/frienkie/cood/test1', 'w') as f:

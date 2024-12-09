@@ -64,7 +64,7 @@ def odom_callback(config):
     config.prev_y = config.y
     #print("当前总里程: %.2f 米", config.distance)
 
-def save(time,distance,count,n):
+def save(time,distance,count,n,m):
     file_name = "/home/frienkie/result/data.xlsx"
 
     # 检查文件是否存在
@@ -92,6 +92,8 @@ def save(time,distance,count,n):
         for cell in sheet['A']:
             if cell.value is not None:
                 row += 1
+            else:
+                break
         sheet.cell(row=row, column=1, value=formatted_data1)
         sheet.cell(row=row, column=2, value=formatted_data2)
         sheet.cell(row=row, column=3, value=data3)
@@ -99,9 +101,12 @@ def save(time,distance,count,n):
         for cell in sheet['G']:
             if cell.value is not None:
                 row += 1
+            else:
+                break
         sheet.cell(row=row, column=7, value=formatted_data1)
         sheet.cell(row=row, column=8, value=formatted_data2)
         sheet.cell(row=row, column=9, value=data3)
+        sheet.cell(row=row, column=14, value=m)
     # 保存工作簿
     workbook.save(file_name)
 
@@ -151,7 +156,12 @@ def set_robot_position(model_name, position, orientation):
         state_msg.pose.orientation.y = orientation[1]
         state_msg.pose.orientation.z = orientation[2]
         state_msg.pose.orientation.w = orientation[3]
-        
+        state_msg.twist.linear.x = 0.0
+        state_msg.twist.linear.y = 0.0
+        state_msg.twist.linear.z = 0.0
+        state_msg.twist.angular.x = 0.0
+        state_msg.twist.angular.y = 0.0
+        state_msg.twist.angular.z = 0.0
         # 调用服务
         resp = set_state(state_msg)
         if resp.success:
