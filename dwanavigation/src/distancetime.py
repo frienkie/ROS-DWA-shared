@@ -80,6 +80,8 @@ def save(time,distance,count):
     for cell in sheet['D']:
         if cell.value is not None:
             row += 1
+        else:
+            break
     # 需要写入的浮点数据（这里替换为你的数据）
     data1 = time  # 示例浮点数
     data2 = distance
@@ -142,7 +144,12 @@ def set_robot_position(model_name, position, orientation):
         state_msg.pose.orientation.y = orientation[1]
         state_msg.pose.orientation.z = orientation[2]
         state_msg.pose.orientation.w = orientation[3]
-        
+        state_msg.twist.linear.x = 0.0
+        state_msg.twist.linear.y = 0.0
+        state_msg.twist.linear.z = 0.0
+        state_msg.twist.angular.x = 0.0
+        state_msg.twist.angular.y = 0.0
+        state_msg.twist.angular.z = 0.0
         # 调用服务
         resp = set_state(state_msg)
         if resp.success:

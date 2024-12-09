@@ -45,21 +45,21 @@ class Config():
         self.max_accel = 1.0  # [m/ss]
         self.max_dyawrate = 3.2  # [rad/ss]
         self.v_reso = 0.04  # [m/s]
-        self.yawrate_reso = 0.04 # [rad/s]
+        self.yawrate_reso = math.pi / 12 # [rad/s]
         self.dt = 0.2  # [s]
         self.predict_time = 4.0  # [s]
         if args.param == 1:
-            self.to_goal_cost_gain = 4.0 #lower = detour
-            self.speed_cost_gain = 15.0 #lower = faster
-            self.obs_cost_gain = 15.0 #lower z= fearless
+            self.to_goal_cost_gain = 1.0 #lower = detour
+            self.speed_cost_gain = 2.0 #lower = faster
+            self.obs_cost_gain = 1.0 #lower z= fearless
         if args.param == 2:
-            self.to_goal_cost_gain = 4.0 #lower = detour
-            self.speed_cost_gain = 4.0 #lower = faster
-            self.obs_cost_gain = 8.0 #lower z= fearless
+            self.to_goal_cost_gain = 1.0 #lower = detour
+            self.speed_cost_gain = 1.0 #lower = faster
+            self.obs_cost_gain = 2.0 #lower z= fearless
         if args.param == 3:
-            self.to_goal_cost_gain = 8.0 #lower = detour
-            self.speed_cost_gain = 4.0 #lower = faster
-            self.obs_cost_gain = 4.0 #lower z= fearless
+            self.to_goal_cost_gain = 2.0 #lower = detour
+            self.speed_cost_gain = 1.0 #lower = faster
+            self.obs_cost_gain = 1.0 #lower z= fearless
         self.robot_radius = 0.108  # [m]
         self.x = 0.0
         self.y = 0.0
