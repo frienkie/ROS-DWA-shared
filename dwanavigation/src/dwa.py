@@ -19,6 +19,18 @@ from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
 from distancetime import *
 
+import argparse
+
+# 创建解析器
+parser = argparse.ArgumentParser(description="设置参数")
+
+# 添加参数
+parser.add_argument("--param", type=int, required=True, help="参数值")
+
+# 解析参数
+args = parser.parse_args()
+
+
 
 class Config():
     # simulation parameters
@@ -36,11 +48,18 @@ class Config():
         self.yawrate_reso = 0.04 # [rad/s]
         self.dt = 0.2  # [s]
         self.predict_time = 4.0  # [s]
-
-        self.to_goal_cost_gain = 8.0 #lower = detour
-        self.speed_cost_gain = 4.0 #lower = faster
-        self.obs_cost_gain = 4.0 #lower z= fearless
-
+        if args.param == 1:
+            self.to_goal_cost_gain = 4.0 #lower = detour
+            self.speed_cost_gain = 15.0 #lower = faster
+            self.obs_cost_gain = 15.0 #lower z= fearless
+        if args.param == 2:
+            self.to_goal_cost_gain = 4.0 #lower = detour
+            self.speed_cost_gain = 4.0 #lower = faster
+            self.obs_cost_gain = 8.0 #lower z= fearless
+        if args.param == 3:
+            self.to_goal_cost_gain = 8.0 #lower = detour
+            self.speed_cost_gain = 4.0 #lower = faster
+            self.obs_cost_gain = 4.0 #lower z= fearless
         self.robot_radius = 0.108  # [m]
         self.x = 0.0
         self.y = 0.0
@@ -216,7 +235,7 @@ def calc_obstacle_cost(traj, ob, config):
     
     # Loop through every obstacle in set and calc Pythagorean distance
     # Use robot radius to determine if collision
-    for ii in range(1, len(traj[:, 1]), skip_n):
+    for ii in range(0, len(traj[:, 1]), skip_n):
         for i in ob.copy():
             ox = i[0]           ##障害物
             oy = i[1]
