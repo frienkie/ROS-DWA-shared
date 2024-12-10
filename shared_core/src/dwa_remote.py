@@ -20,15 +20,8 @@ from tf.transformations import euler_from_quaternion
 from std_msgs.msg import Float64
 from visualization_msgs.msg import Marker
 from distancetime import *
-import json
-import argparse
-parser = argparse.ArgumentParser(description="设置参数")
 
-# 添加参数
-parser.add_argument("--param", type=int, required=True, help="参数值")
 
-# 解析参数
-args = parser.parse_args()
 
 class Config():
     # simulation parameters
@@ -55,20 +48,11 @@ class Config():
         # self.speed_cost_gain = 1.5 
         # self.obs_cost_gain = 1.0
         # self.to_human_cost_gain =0.5
-        if args.param == 1:
-            self.to_human_cost_gain = 1.0 #lower = detour
-            self.speed_cost_gain = 2.0 #lower = faster
-            self.obs_cost_gain = 1.0 #lower z= fearless
-        if args.param == 2:
-            self.to_human_cost_gain = 1.0 #lower = detour
-            self.speed_cost_gain = 1.0 #lower = faster
-            self.obs_cost_gain = 2.0 #lower z= fearless
-        if args.param == 3:
-            self.to_human_cost_gain = 2.0 #lower = detour
-            self.speed_cost_gain = 1.0 #lower = faster
-            self.obs_cost_gain = 1.0 #lower z= fearless
+        self.to_human_cost_gain = 1.0 #lower = detour
+        self.speed_cost_gain = 5.0 #lower = faster
+        self.obs_cost_gain = 1.0 #lower z= fearless
         #############################
-        self.robot_radius = 0.106  # [m]
+        self.robot_radius = 0.108  # [m]
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
@@ -77,7 +61,7 @@ class Config():
         self.prev_x = 0.0
         self.prev_y = 0.0
         self.distance = 0.0
-        self.xy = set()
+        # self.xy = set()
         self.r = rospy.Rate(20)
 
     # Callback for Odometry
@@ -114,10 +98,10 @@ class Obstacles():
         scan_range = []
         for i in range(len(msg.ranges)):
             # if msg.ranges[i] == float('Inf'):
-            if msg.ranges[i]>3.5:
-                continue
+            if msg.ranges[i]>3.5 or msg.ranges[i] == float('Inf'):
+                distance = 3.5
                 # scan_range.append(3.5)
-            elif np.isnan(msg.ranges[i]):
+            elif np.isnan(msg.ranges[i]) or msg.ranges[i]<0.12:
                 # scan_range.append(0)
                 distance = 0.12
 
@@ -264,12 +248,14 @@ def calc_final_input(x, u, dw, config, ob):
 
             final_cost = to_human_cost + speed_cost + ob_cost
 
-            # search minimum trajectory     ##最大代价
+               ##最大代价
             if max_cost <= final_cost:
                 max_cost = final_cost
                 max_u = [v, w]
+                print(max_u[0],max_u[1])
+                print(ob_cost)
     #             ob_costly=angle_robot
-    # print(ob_costly)
+    
     # print(max_u[0],max_u[1])
     show_trajectory(xinit, max_u[0], max_u[1], config)
     
@@ -371,6 +357,7 @@ def cal_angle(v,w):
 human_angle=math.pi/2
 angle_human=0
 yici=1
+inputkey=0
 
 def share1(vel_msg,config):# human command get 获取人类指令
     global human
@@ -390,7 +377,7 @@ def share1(vel_msg,config):# human command get 获取人类指令
 
     human_angle=human.angular.z
 
-    if human.linear.x<=0.001 and human.linear.x>=-0.001:
+    if human.linear.x<=0.01 and human.linear.x>=-0.01:
         human.linear.x = 0.0
     # human_angle=cal_angle(human.linear.x,human.angular.z)
 
@@ -518,7 +505,7 @@ def change_goal(config,n):
 human=Twist()
 human_r=float("inf")
 ob_costly=Float64()
-inputkey=0
+
 
 
 def main():
@@ -537,13 +524,6 @@ def main():
     config = Config()
     # position of obstacles
     obs = Obstacles()
-    counter = StringMessageCounter()
-
-    model_name = "turtlebot3"
-    # 指定目标位置和方向 (四元数)
-    target_position = [-3.6, -3.0, 0.0]  # x, y, z
-    target_orientation = [0.0, 0.0, 0.707,  0.707]  # x, y, z, w
-    set_robot_position(model_name, target_position, target_orientation)
 
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
     subLaser = rospy.Subscriber("/scan", LaserScan, obs.assignObs1, config)
@@ -559,8 +539,8 @@ def main():
     marker_pub = rospy.Publisher('visualization_marker', Marker, queue_size=10)
     
     speed = Twist()
-    change_goal(config,rand.get_next())
-    goal_sphere(config)
+    # change_goal(config,rand.get_next())
+    # goal_sphere(config)
     # initial state [x(m), y(m), theta(rad), v(m/s), omega(rad/s)]
     x = np.array([config.x, config.y, config.th, 0.0, 0.0])
     # initial linear and angular velocities
@@ -577,34 +557,36 @@ def main():
             x[2] = config.th
             x[3] = u[0]
             x[4] = u[1]
+
             speed.linear.x = x[3]
             speed.angular.z = x[4]
             line(line_num)
             pub_line.publish(marker)
-        
+            # marker_pub.publish(markers)
+
         else:
             # if 0 then do directly
             speed.linear.x = human.linear.x
             speed.angular.z = human.angular.z
-        if yici>0:
-            marker_pub.publish(markers)
+        # if yici>0:
+        #     marker_pub.publish(markers)
         pub.publish(speed)
-        if atGoal(config)==1:
+        # if atGoal(config)==1:
 
-            if yici>0:
-                print("YOU have arrive the goal point")
-                save(get_time(start_time),config.distance,counter.send_count,inputkey,args.param)
-                print("distance in this time: %.2f m" % config.distance)
-                print("hit time: %d " % counter.send_count)
-                with open('/home/frienkie/cood/test1', 'w') as f:
-                    json.dump(list(config.xy), f)
-                # start_time = rospy.get_time()
+        #     if yici>0:
+        #         print("YOU have arrive the goal point")
+        #         save(get_time(start_time),config.distance,counter.send_count,inputkey,args.param)
+        #         print("distance in this time: %.2f m" % config.distance)
+        #         print("hit time: %d " % counter.send_count)
+        #         with open('/home/frienkie/cood/test1', 'w') as f:
+        #             json.dump(list(config.xy), f)
+        #         # start_time = rospy.get_time()
                 
-            change_goal(config,rand.get_next())
-            goal_sphere(config)
+        #     change_goal(config,rand.get_next())
+        #     goal_sphere(config)
         config.r.sleep()
 
 
 if __name__ == '__main__':
-    rospy.init_node('shared_dwa')
+    rospy.init_node('shared_dwa_remote')
     main()
