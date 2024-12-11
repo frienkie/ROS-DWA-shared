@@ -246,7 +246,7 @@ def calc_final_input(x, u, dw, config, ob):
     max_u = u
     max_u[0] = 0.0 #全部为死路
     max_u[1] = human.angular.z
-    global ob_costly,angle_robot
+    global angle_robot
     # evaluate all trajectory with sampled input in dynamic window
     for v in np.arange(config.min_speed, config.max_speed+config.v_reso, config.v_reso):
         for w in np.arange(-config.max_yawrate, config.max_yawrate+config.yawrate_reso, config.yawrate_reso):
@@ -268,8 +268,7 @@ def calc_final_input(x, u, dw, config, ob):
             if max_cost <= final_cost:
                 max_cost = final_cost
                 max_u = [v, w]
-    #             ob_costly=angle_robot
-    # print(ob_costly)
+
     # print(max_u[0],max_u[1])
     show_trajectory(xinit, max_u[0], max_u[1], config)
     

@@ -49,10 +49,12 @@ class Config():
         # self.obs_cost_gain = 1.0
         # self.to_human_cost_gain =0.5
         self.to_human_cost_gain = 1.0 #lower = detour
-        self.speed_cost_gain = 5.0 #lower = faster
-        self.obs_cost_gain = 1.0 #lower z= fearless
+        self.speed_cost_gain = 1.5 #lower = faster
+        self.obs_cost_gain = 0.5 #lower z= fearless
         #############################
-        self.robot_radius = 0.108  # [m]
+        self.robot_radius = 0.107  # [m]
+        self.distance_min = 0.12
+        self.distance_max = 3.5
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
@@ -88,7 +90,6 @@ class Obstacles():
     def __init__(self):
         # Set of coordinates of obstacles in view
         self.obst = set()
-        self.existing_coordinates = set()
 
     def assignObs1(self, msg, config):
 
@@ -98,12 +99,16 @@ class Obstacles():
         scan_range = []
         for i in range(len(msg.ranges)):
             # if msg.ranges[i] == float('Inf'):
-            if msg.ranges[i]>3.5 or msg.ranges[i] == float('Inf'):
-                distance = 3.5
+            if msg.ranges[i]>config.distance_max or msg.ranges[i] == float('Inf'):
+                continue
                 # scan_range.append(3.5)
-            elif np.isnan(msg.ranges[i]) or msg.ranges[i]<0.12:
+
+            elif msg.ranges[i]<config.distance_min:
+                continue
+
+            elif np.isnan(msg.ranges[i]):
                 # scan_range.append(0)
-                distance = 0.12
+                distance = config.distance_min
 
             else:
                 distance = msg.ranges[i]
@@ -202,7 +207,7 @@ def calc_trajectory(xinit, v, y, config):
 def calc_angle_fromtraj(v, y, config):
 
     x = np.array([0,0,0,v,y])
-    time = 0
+    time = 0.0
     angle =0.0
 
     while time <= 1.0:
@@ -221,8 +226,6 @@ def calc_angle_fromtraj(v, y, config):
 ################################################################################
 
 
-
-# Calculate trajectory, costings, and return velocities to apply to robot
 def calc_final_input(x, u, dw, config, ob):
 
     xinit = x[:]######
@@ -230,7 +233,7 @@ def calc_final_input(x, u, dw, config, ob):
     max_u = u
     max_u[0] = 0.0 #全部为死路
     max_u[1] = human.angular.z
-    global ob_costly,angle_robot
+    global angle_robot
     # evaluate all trajectory with sampled input in dynamic window
     for v in np.arange(config.min_speed, config.max_speed+config.v_reso, config.v_reso):
         for w in np.arange(-config.max_yawrate, config.max_yawrate+config.yawrate_reso, config.yawrate_reso):
@@ -248,14 +251,11 @@ def calc_final_input(x, u, dw, config, ob):
 
             final_cost = to_human_cost + speed_cost + ob_cost
 
-               ##最大代价
+            # search minimum trajectory     ##最大代价
             if max_cost <= final_cost:
                 max_cost = final_cost
                 max_u = [v, w]
-                print(max_u[0],max_u[1])
-                print(ob_cost)
-    #             ob_costly=angle_robot
-    
+
     # print(max_u[0],max_u[1])
     show_trajectory(xinit, max_u[0], max_u[1], config)
     
@@ -267,18 +267,18 @@ def calc_final_input(x, u, dw, config, ob):
 # Calculate obstacle cost inf: collision, 0:free
 def calc_obstacle_cost(traj, ob, config):
     skip_n = 1
-    minr = 3.5
+    minr = config.distance_max
     
     # Loop through every obstacle in set and calc Pythagorean distance
     # Use robot radius to determine if collision
-    for ii in range(2, len(traj[:, 1]), skip_n):
+    for ii in range(3, len(traj[:, 1]), skip_n):
         for i in ob.copy():
             ox = i[0]           ##障害物
             oy = i[1]
             dx = traj[ii, 0] - ox    ##轨迹
             dy = traj[ii, 1] - oy
 
-            r = math.sqrt(dx**2 + dy**2)  ##距离
+            r = math.sqrt(math.pow(dx,2) + math.pow(dy,2))  ##距离 dx**2 + dy**2<0 r=nan
 
             if r <= config.robot_radius:
                 return float("-Inf")  # collision
@@ -286,8 +286,7 @@ def calc_obstacle_cost(traj, ob, config):
             if minr >= r:
                 minr = r
 
-
-    return (minr-0.12)/3.38
+    return (minr-config.distance_min)/(config.distance_max-config.distance_min)
 
 ############################################################################333
 def calc_to_human_cost( v, w,config,n):
