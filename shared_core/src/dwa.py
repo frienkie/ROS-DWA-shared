@@ -49,7 +49,7 @@ class Config():
         #######################################################
         self.dt = 0.5  # [s]
         self.predict_time = 3.0  # [s]
-        self.showpredict_time = 4.5  # [s]
+        self.showpredict_time = 3.0  # [s]
         self.showdt = 1.0
         #########################################
         # self.speed_cost_gain = 1.5 
@@ -104,7 +104,6 @@ class Obstacles():
     def __init__(self):
         # Set of coordinates of obstacles in view
         self.obst = set()
-        self.existing_coordinates = set()
 
     def assignObs1(self, msg, config):
 
@@ -140,14 +139,6 @@ class Obstacles():
 
             # all obastacle data
             self.obst.add((obsX,obsY))
-        # with open('/home/frienkie/cood/test', 'r') as f:
-        #     self.existing_coordinates = set(map(tuple, json.load(f)))
-        
-        # self.existing_coordinates = self.existing_coordinates.union(self.obst)
-        # with open('/home/frienkie/cood/test', 'w') as f:
-        #     json.dump(list(self.existing_coordinates), f)
-        # print (self.obst)
-
 
 # Model to determine the expected position of the robot after moving along trajectory
 def motion(x, u, dt):
@@ -182,7 +173,7 @@ def calc_dynamic_window(x, config):
 
 list_x=[]
 list_y=[]
-
+line_num=0
 
 def show_trajectory(xinit, v, y, config):
     global line_num
@@ -240,12 +231,15 @@ def calc_angle_fromtraj(v, y, config):
 
 # Calculate trajectory, costings, and return velocities to apply to robot
 def calc_final_input(x, u, dw, config, ob):
-
+    # global list_x,list_y,line_num
     xinit = x[:]######
     max_cost = 0
+    # trajs=[]
     max_u = u
     max_u[0] = 0.0 #全部为死路
     max_u[1] = human.angular.z
+    # list_x.clear()
+    # list_y.clear()
     global angle_robot
     # evaluate all trajectory with sampled input in dynamic window
     for v in np.arange(config.min_speed, config.max_speed+config.v_reso, config.v_reso):
@@ -268,7 +262,11 @@ def calc_final_input(x, u, dw, config, ob):
             if max_cost <= final_cost:
                 max_cost = final_cost
                 max_u = [v, w]
-
+                # trajs=traj
+    # for element in trajs:
+    #                 list_x.append(element[0])
+    #                 list_y.append(element[1])
+    #                 line_num=len(list_x)
     # print(max_u[0],max_u[1])
     show_trajectory(xinit, max_u[0], max_u[1], config)
     
@@ -594,9 +592,9 @@ def main():
                 save(get_time(start_time),config.distance,counter.send_count,inputkey,args.param)
                 print("distance in this time: %.2f m" % config.distance)
                 print("hit time: %d " % counter.send_count)
-                with open('/home/frienkie/cood/test1', 'w') as f:
-                    json.dump(list(config.xy), f)
-                # start_time = rospy.get_time()
+                # with open('/home/frienkie/cood/test1', 'w') as f:
+                #     json.dump(list(config.xy), f)
+
                 
             change_goal(config,rand.get_next())
             goal_sphere(config)
