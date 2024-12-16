@@ -42,7 +42,7 @@ class Config():
         #######################################################
         self.dt = 0.5  # [s]
         self.predict_time = 3.0  # [s]
-        self.showpredict_time = 4.5  # [s]
+        self.showpredict_time = 3.0  # [s]
         self.showdt = 1.0
         #########################################
         # self.speed_cost_gain = 1.5 
@@ -52,8 +52,8 @@ class Config():
         self.speed_cost_gain = 1.5 #lower = faster
         self.obs_cost_gain = 0.5 #lower z= fearless
         #############################
-        self.robot_radius = 0.107  # [m]
-        self.distance_min = 0.12
+        self.robot_radius = 0.11  # [m]
+        self.distance_min = 0.11
         self.distance_max = 3.5
         self.x = 0.0
         self.y = 0.0
@@ -229,7 +229,7 @@ def calc_angle_fromtraj(v, y, config):
 def calc_final_input(x, u, dw, config, ob):
 
     xinit = x[:]######
-    max_cost = 0
+    max_cost = 0.0
     max_u = u
     max_u[0] = 0.0 #全部为死路
     max_u[1] = human.angular.z
@@ -271,7 +271,7 @@ def calc_obstacle_cost(traj, ob, config):
     
     # Loop through every obstacle in set and calc Pythagorean distance
     # Use robot radius to determine if collision
-    for ii in range(3, len(traj[:, 1]), skip_n):
+    for ii in range(1, len(traj[:, 1]), skip_n):
         for i in ob.copy():
             ox = i[0]           ##障害物
             oy = i[1]
