@@ -516,7 +516,6 @@ def change_goal(config,n):
 
 human=Twist()
 human_r=float("inf")
-ob_costly=Float64()
 inputkey=0
 
 

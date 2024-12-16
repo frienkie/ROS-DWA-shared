@@ -9,6 +9,9 @@ from gazebo_model_collision_plugin.msg import Contact
 import random
 from gazebo_msgs.srv import SetModelState
 from gazebo_msgs.msg import ModelState
+from sensor_msgs.msg import JoyFeedbackArray,JoyFeedback
+
+
 
 
 markers = Marker()
@@ -117,20 +120,38 @@ class StringMessageCounter:
         self.inactive_threshold = 2.0  # 秒
         self.last_message_time = None
         self.send_count = 0
+        self.vibra=JoyFeedback()
+        self.vibra.type=1
+        self.vibra.id=1
+        self.vibra.intensity=1.0
+        self.novibra=JoyFeedback()
+        self.novibra.type=1
+        self.novibra.id=1
+        self.novibra.intensity=0.0
+        self.jyotai=0
         rospy.Subscriber("/gazebo/base_collision",Contact,self.callbackobs,queue_size=10)
-
+        self.vibration = rospy.Publisher('joy/set_feedback',JoyFeedbackArray,queue_size=10)
 
     def callbackobs(self,msg):
         current_time = rospy.get_time()
-        
         # 判断是否是新的一次发送
         if self.last_message_time is None or \
            (current_time - self.last_message_time) > self.inactive_threshold:
             self.send_count += 1
             print(f"New message batch detected. Total count: {self.send_count}")
-        
+            self.jyotai=1
         # 更新最后消息接收时间
         self.last_message_time = current_time
+
+        if self.jyotai==1:
+            self.feedback=JoyFeedbackArray(array=[self.vibra])
+            self.vibration.publish(self.feedback)
+            rospy.sleep(1.2)
+            self.jyotai=0
+        else:
+            self.feedback=JoyFeedbackArray(array=[self.novibra])
+            self.vibration.publish(self.feedback)
+        
 
 def set_robot_position(model_name, position, orientation):
     """
