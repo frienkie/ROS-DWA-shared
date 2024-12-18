@@ -234,7 +234,7 @@ def calc_angle_fromtraj(v, y, config):
 def calc_final_input(x, u, dw, config, ob):
     # global list_x,list_y,line_num
     xinit = x[:]######
-    max_cost = 0
+    max_cost = 0.0
     # trajs=[]
     max_u = u
     max_u[0] = 0.0 #全部为死路
