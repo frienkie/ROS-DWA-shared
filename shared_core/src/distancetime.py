@@ -10,7 +10,8 @@ import random
 from gazebo_msgs.srv import SetModelState
 from gazebo_msgs.msg import ModelState
 from sensor_msgs.msg import JoyFeedbackArray,JoyFeedback
-
+import subprocess
+import time
 
 
 
@@ -37,9 +38,9 @@ def goal_sphere(config):
     markers.pose.orientation.z = 0.0
     markers.pose.orientation.w = 1.0
 
-    markers.scale.x = config.robot_radius*4  # 球体在 x 方向的大小
-    markers.scale.y = config.robot_radius*4  # 球体在 y 方向的大小
-    markers.scale.z = config.robot_radius*4  # 球体在 z 方向的大小
+    markers.scale.x = config.goal_radius  # 球体在 x 方向的大小
+    markers.scale.y = config.goal_radius  # 球体在 y 方向的大小
+    markers.scale.z = config.goal_radius  # 球体在 z 方向的大小
 
     # 设置颜色
     markers.color.r = 0.0  # 红色分量
@@ -130,7 +131,7 @@ class StringMessageCounter:
         self.novibra.intensity=0.0
         self.jyotai=0
         rospy.Subscriber("/gazebo/base_collision",Contact,self.callbackobs,queue_size=10)
-        self.vibration = rospy.Publisher('joy/set_feedback',JoyFeedbackArray,queue_size=10)
+        self.vibration = rospy.Publisher('joy/set_feedback',JoyFeedbackArray,queue_size=1)
 
     def callbackobs(self,msg):
         current_time = rospy.get_time()
@@ -191,3 +192,60 @@ def set_robot_position(model_name, position, orientation):
             rospy.logwarn(f"Failed to move {model_name}: {resp.status_message}")
     except rospy.ServiceException as e:
         rospy.logerr(f"Service call failed: {e}")
+
+rosbag_process = None
+
+def start_rosbag():
+    """
+    启动 rosbag 记录。
+    :param record_topics: 要记录的 ROS 话题列表，字符串或列表形式
+    :param output_file: rosbag 保存的文件路径，不需要后缀名
+    """
+    counter_file = "counter.txt"
+
+    # 检查文件是否存在
+    if not os.path.exists(counter_file):
+        # 如果文件不存在，初始化计数器为0
+        with open(counter_file, "w") as file:
+            file.write("0")
+
+    # 读取文件中的计数器值
+    with open(counter_file, "r") as file:
+        count = int(file.read().strip())
+
+    # 增加计数器
+    count += 1
+
+    # 将新的计数器值写回文件
+    with open(counter_file, "w") as file:
+        file.write(str(count))
+    
+    record_topics = ["/cmd_vel", "/cmd_vel_human"]  # 示例话题
+    output_file = "rosbag"
+    output_file = output_file +str(count)
+    global rosbag_process
+    # 构建 rosbag record 命令
+    cmd = ["rosbag", "record", "-O", output_file]
+    if isinstance(record_topics, list):
+        cmd.extend(record_topics)
+    elif isinstance(record_topics, str):
+        cmd.append(record_topics)
+
+    # 启动 rosbag 记录
+    print(f"Starting rosbag recording: {' '.join(cmd)}")
+    rosbag_process = subprocess.Popen(cmd)
+    print("rosbag recording started.")
+
+def stop_rosbag():
+    """
+    停止 rosbag 记录。
+    """
+    global rosbag_process
+    if rosbag_process is not None:
+        print("Stopping rosbag recording...")
+        rosbag_process.terminate()  # 发送 SIGTERM 信号
+        rosbag_process.wait()       # 等待进程结束
+        rosbag_process = None
+        print("rosbag recording stopped.")
+    else:
+        print("No rosbag recording process found.")

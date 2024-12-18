@@ -51,6 +51,7 @@ class Config():
         self.predict_time = 3.0  # [s]
         self.showpredict_time = 3.0  # [s]
         self.showdt = 1.0
+        self.goal_radius=0.4
         #########################################
         # self.speed_cost_gain = 1.5 
         # self.obs_cost_gain = 1.0
@@ -90,7 +91,7 @@ class Config():
         (roll,pitch,theta) = \
             euler_from_quaternion ([rot_q.x,rot_q.y,rot_q.z,rot_q.w])
         self.th = theta
-        # self.xy.add((self.x,self.y))
+        self.xy.add((self.x,self.y))
         odom_callback(self)
 
 
@@ -351,7 +352,7 @@ def dwa_control(x, u, config, ob):
 def atGoal(config):
     # check at goal
     if math.sqrt((config.x - config.goalX)**2 + (config.y - config.goalY)**2) \
-        <= config.robot_radius*4:
+        <= config.goal_radius:
         return 1
     return 0
 
@@ -562,6 +563,7 @@ def main():
     # initial linear and angular velocities
     u = np.array([0.0, 0.0])
 
+    start_rosbag()
     start_time = rospy.get_time()
     # runs until terminated externally
     while not rospy.is_shutdown():
@@ -592,12 +594,16 @@ def main():
                 save(get_time(start_time),config.distance,counter.send_count,inputkey,args.param)
                 print("distance in this time: %.2f m" % config.distance)
                 print("hit time: %d " % counter.send_count)
-                # with open('/home/frienkie/cood/test1', 'w') as f:
-                #     json.dump(list(config.xy), f)
-
+                with open('/home/frienkie/cood/test1.txt', 'w') as f:
+                    json.dump(list(config.xy), f)
+                stop_rosbag()
+                # with open('/home/frienkie/cood/cood.txt', 'w') as file:
+                #     for (x, y) in config.xy:
+                #         file.write(f"{x:.4f} {y:.4f}\n")
+                change_goal(config,rand.get_next())
+                goal_sphere(config)
                 
-            change_goal(config,rand.get_next())
-            goal_sphere(config)
+            
         config.r.sleep()
 
 
