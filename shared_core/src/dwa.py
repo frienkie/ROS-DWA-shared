@@ -520,6 +520,8 @@ inputkey=0
 
 def main():
     print(__file__ + " start!!")
+    print("which map is used now?")
+    chizu=input()
     print("human is 0,share is 1")
     inputs=input()
     if inputs=="0":
@@ -563,7 +565,7 @@ def main():
     # initial linear and angular velocities
     u = np.array([0.0, 0.0])
 
-    start_rosbag()
+    file_value=start_rosbag()
     start_time = rospy.get_time()
     # runs until terminated externally
     while not rospy.is_shutdown():
@@ -591,10 +593,10 @@ def main():
 
             if yici>0:
                 print("YOU have arrive the goal point")
-                save(get_time(start_time),config.distance,counter.send_count,inputkey,args.param)
+                save(get_time(start_time),config.distance,counter.send_count,inputkey,args.param,chizu)
                 print("distance in this time: %.2f m" % config.distance)
                 print("hit time: %d " % counter.send_count)
-                with open('/home/frienkie/cood/test1.txt', 'w') as f:
+                with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
                     json.dump(list(config.xy), f)
                 stop_rosbag()
                 # with open('/home/frienkie/cood/cood.txt', 'w') as file:

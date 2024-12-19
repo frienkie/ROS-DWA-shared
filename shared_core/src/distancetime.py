@@ -68,7 +68,7 @@ def odom_callback(config):
     config.prev_y = config.y
     #print("当前总里程: %.2f 米", config.distance)
 
-def save(time,distance,count,n,m):
+def save(time,distance,count,n,m,chizu):
     file_name = "/home/frienkie/result/data.xlsx"
 
     # 检查文件是否存在
@@ -93,7 +93,7 @@ def save(time,distance,count,n,m):
     formatted_data2 = round(data2, 2)
     # 将数据写入第一列的下一行
     if n==0:
-        for cell in sheet['A']:
+        for cell in sheet['N']:
             if cell.value is not None:
                 row += 1
             else:
@@ -101,8 +101,10 @@ def save(time,distance,count,n,m):
         sheet.cell(row=row, column=1, value=formatted_data1)
         sheet.cell(row=row, column=2, value=formatted_data2)
         sheet.cell(row=row, column=3, value=data3)
+        sheet.cell(row=row, column=14, value=4)
+        sheet.cell(row=row, column=16, value=row-1)
     else:
-        for cell in sheet['G']:
+        for cell in sheet['N']:
             if cell.value is not None:
                 row += 1
             else:
@@ -111,10 +113,11 @@ def save(time,distance,count,n,m):
         sheet.cell(row=row, column=8, value=formatted_data2)
         sheet.cell(row=row, column=9, value=data3)
         sheet.cell(row=row, column=14, value=m)
+        sheet.cell(row=row, column=15, value=chizu)
+        sheet.cell(row=row, column=16, value=row-1)
     # 保存工作簿
     workbook.save(file_name)
 
-    
 class StringMessageCounter:
     def __init__(self):
         # 设置监听的时间间隔
@@ -235,6 +238,7 @@ def start_rosbag():
     print(f"Starting rosbag recording: {' '.join(cmd)}")
     rosbag_process = subprocess.Popen(cmd)
     print("rosbag recording started.")
+    return count
 
 def stop_rosbag():
     """
