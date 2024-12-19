@@ -77,7 +77,7 @@ def save(time,distance,count):
 
     # 查找第一列中最后一行的行号
     row = 1
-    for cell in sheet['D']:
+    for cell in sheet['N']:
         if cell.value is not None:
             row += 1
         else:
@@ -93,6 +93,8 @@ def save(time,distance,count):
     sheet.cell(row=row, column=4, value=formatted_data1)
     sheet.cell(row=row, column=5, value=formatted_data2)
     sheet.cell(row=row, column=6, value=data3)
+    sheet.cell(row=row, column=14, value=5)
+    sheet.cell(row=row, column=16, value=row-1)
     # 保存工作簿
     workbook.save(file_name)
 

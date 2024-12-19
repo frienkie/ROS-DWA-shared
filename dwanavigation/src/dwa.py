@@ -407,6 +407,7 @@ def main():
                 save(get_time(start_time),config.distance,counter.send_count)
                 print("distance in this time: %.2f m" % config.distance)
                 print("hit time: %d " % counter.send_count)
+                
 
 
             change_goal(config,rand.get_next())
