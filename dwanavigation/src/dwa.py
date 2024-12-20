@@ -18,6 +18,7 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
 from distancetime import *
+import json
 
 import argparse
 
@@ -60,7 +61,7 @@ class Config():
             self.to_goal_cost_gain = 2.0 #lower = detour
             self.speed_cost_gain = 1.0 #lower = faster
             self.obs_cost_gain = 1.0 #lower z= fearless
-        self.robot_radius = 0.108  # [m]
+        self.robot_radius = 0.106  # [m]
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
@@ -69,6 +70,7 @@ class Config():
         self.prev_x = 0.0
         self.prev_y = 0.0
         self.distance = 0.0
+        self.xy = set()
         self.r = rospy.Rate(20)
 
     # Callback for Odometry
@@ -81,6 +83,7 @@ class Config():
             euler_from_quaternion ([rot_q.x,rot_q.y,rot_q.z,rot_q.w])
         self.th = theta
         # print(self.th)
+        self.xy.add((self.x,self.y))
         odom_callback(self)
 
 class Obstacles():
@@ -365,7 +368,9 @@ def main():
     obs = Obstacles()
     rand=RandomNumberGenerator()
     counter = StringMessageCounter()
-
+    print("which map is used now?")
+    chizu=input()
+    file_value=start_rosbag()
     model_name = "turtlebot3"
     # 指定目标位置和方向 (四元数)
     target_position = [-3.6, -3.0, 0.0]  # x, y, z
@@ -404,12 +409,13 @@ def main():
             global yici
             if yici>0:
                 print("YOU have arrive the goal point")
-                save(get_time(start_time),config.distance,counter.send_count)
+                save(get_time(start_time),config.distance,counter.send_count,args.param+4,chizu)
                 print("distance in this time: %.2f m" % config.distance)
                 print("hit time: %d " % counter.send_count)
+                with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
+                    json.dump(list(config.xy), f)
+                stop_rosbag()
                 
-
-
             change_goal(config,rand.get_next())
             goal_sphere(config)
         pub.publish(speed)

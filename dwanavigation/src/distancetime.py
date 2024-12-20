@@ -9,6 +9,7 @@ from gazebo_model_collision_plugin.msg import Contact
 import random
 from gazebo_msgs.srv import SetModelState
 from gazebo_msgs.msg import ModelState
+import subprocess
 markers = Marker()
 def goal_sphere(config):
     
@@ -61,7 +62,7 @@ def odom_callback(config):
     config.prev_y = config.y
     #print("当前总里程: %.2f 米", config.distance)
 
-def save(time,distance,count):
+def save(time,distance,count,m,chizu):
     file_name = "/home/frienkie/result/data.xlsx"
 
     # 检查文件是否存在
@@ -93,7 +94,8 @@ def save(time,distance,count):
     sheet.cell(row=row, column=4, value=formatted_data1)
     sheet.cell(row=row, column=5, value=formatted_data2)
     sheet.cell(row=row, column=6, value=data3)
-    sheet.cell(row=row, column=14, value=5)
+    sheet.cell(row=row, column=14, value=m)
+    sheet.cell(row=row, column=15, value=chizu)
     sheet.cell(row=row, column=16, value=row-1)
     # 保存工作簿
     workbook.save(file_name)
@@ -160,3 +162,62 @@ def set_robot_position(model_name, position, orientation):
             rospy.logwarn(f"Failed to move {model_name}: {resp.status_message}")
     except rospy.ServiceException as e:
         rospy.logerr(f"Service call failed: {e}")
+
+
+rosbag_process = None
+
+def start_rosbag():
+    """
+    启动 rosbag 记录。
+    :param record_topics: 要记录的 ROS 话题列表，字符串或列表形式
+    :param output_file: rosbag 保存的文件路径，不需要后缀名
+    """
+    counter_file = "counter.txt"
+
+    # 检查文件是否存在
+    if not os.path.exists(counter_file):
+        # 如果文件不存在，初始化计数器为0
+        with open(counter_file, "w") as file:
+            file.write("0")
+
+    # 读取文件中的计数器值
+    with open(counter_file, "r") as file:
+        count = int(file.read().strip())
+
+    # 增加计数器
+    count += 1
+
+    # 将新的计数器值写回文件
+    with open(counter_file, "w") as file:
+        file.write(str(count))
+    
+    record_topics = ["/cmd_vel", "/cmd_vel_human"]  # 示例话题
+    output_file = "rosbag"
+    output_file = output_file +str(count)
+    global rosbag_process
+    # 构建 rosbag record 命令
+    cmd = ["rosbag", "record", "-O", output_file]
+    if isinstance(record_topics, list):
+        cmd.extend(record_topics)
+    elif isinstance(record_topics, str):
+        cmd.append(record_topics)
+
+    # 启动 rosbag 记录
+    print(f"Starting rosbag recording: {' '.join(cmd)}")
+    rosbag_process = subprocess.Popen(cmd)
+    print("rosbag recording started.")
+    return count
+
+def stop_rosbag():
+    """
+    停止 rosbag 记录。
+    """
+    global rosbag_process
+    if rosbag_process is not None:
+        print("Stopping rosbag recording...")
+        rosbag_process.terminate()  # 发送 SIGTERM 信号
+        rosbag_process.wait()       # 等待进程结束
+        rosbag_process = None
+        print("rosbag recording stopped.")
+    else:
+        print("No rosbag recording process found.")
