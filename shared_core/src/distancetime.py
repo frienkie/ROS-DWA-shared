@@ -68,7 +68,7 @@ def odom_callback(config):
     config.prev_y = config.y
     #print("当前总里程: %.2f 米", config.distance)
 
-def save(time,distance,count,n,m,chizu):
+def save(time,distance,count,n,m,chizu):# n is direct switch,m is para
     file_name = "/home/frienkie/result/data.xlsx"
 
     # 检查文件是否存在
@@ -102,6 +102,7 @@ def save(time,distance,count,n,m,chizu):
         sheet.cell(row=row, column=2, value=formatted_data2)
         sheet.cell(row=row, column=3, value=data3)
         sheet.cell(row=row, column=14, value=4)
+        sheet.cell(row=row, column=15, value=chizu)
         sheet.cell(row=row, column=16, value=row-1)
     else:
         for cell in sheet['N']:
