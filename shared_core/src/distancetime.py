@@ -198,6 +198,28 @@ def set_robot_position(model_name, position, orientation):
         rospy.logerr(f"Service call failed: {e}")
 
 rosbag_process = None
+import pandas as pd
+
+def read_last_value_from_column():
+    # 读取Excel文件
+    workbook = load_workbook("/home/frienkie/result/data.xlsx") # 替换为你的Excel文件名
+    sheet = workbook['Sheet1']  # 替换为你的工作表名
+    row=1
+    for cell in sheet['P']:
+            if cell.value is not None:
+                row += 1
+            else:
+                break
+    if row>1:
+        last_row=row-1
+    else:
+        last_row=1
+    # 获取第16列的最后一行的值
+    valid_values = sheet.cell(row=last_row, column=16).value
+    # 检查是否是数字
+    if not isinstance(valid_values, (int, float)):
+        return 1
+    return valid_values+1
 
 def start_rosbag():
     """
@@ -205,25 +227,7 @@ def start_rosbag():
     :param record_topics: 要记录的 ROS 话题列表，字符串或列表形式
     :param output_file: rosbag 保存的文件路径，不需要后缀名
     """
-    counter_file = "counter.txt"
-
-    # 检查文件是否存在
-    if not os.path.exists(counter_file):
-        # 如果文件不存在，初始化计数器为0
-        with open(counter_file, "w") as file:
-            file.write("0")
-
-    # 读取文件中的计数器值
-    with open(counter_file, "r") as file:
-        count = int(file.read().strip())
-
-    # 增加计数器
-    count += 1
-
-    # 将新的计数器值写回文件
-    with open(counter_file, "w") as file:
-        file.write(str(count))
-    
+    count=read_last_value_from_column()
     record_topics = ["/cmd_vel", "/cmd_vel_human"]  # 示例话题
     output_file = "rosbag"
     output_file = output_file +str(count)
