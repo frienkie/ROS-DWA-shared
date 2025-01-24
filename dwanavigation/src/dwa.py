@@ -19,7 +19,8 @@ from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
 from distancetime import *
 import json
-
+import signal
+import sys
 import argparse
 
 # 创建解析器
@@ -43,7 +44,7 @@ class Config():
         self.max_speed = 0.2  # [m/s]
         self.min_speed = 0.0  # [m/s]
         self.max_yawrate = 0.6  # [rad/s]
-        self.max_accel = 1.0  # [m/ss]
+        self.max_accel = 2.5  # [m/ss]
         self.max_dyawrate = 3.2  # [rad/ss]
         self.v_reso = 0.04  # [m/s]
         self.yawrate_reso = math.pi / 12 # [rad/s]
@@ -359,6 +360,14 @@ def change_goal(config,n):
         config.goalY=6.0
     if yici==1:
         print(n)
+
+
+def signal_handler(signal, frame):
+    print("\nCtrl + C  is pressed,exit sys")
+    sys.exit(0)  # 退出程序
+
+# 绑定 SIGINT 信号（Ctrl + C）到 signal_handler
+signal.signal(signal.SIGINT, signal_handler)
 
 def main():
     print(__file__ + " start!!")

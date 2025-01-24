@@ -50,17 +50,20 @@ def get_time(start_time):
     return elapsed_time
 
 
+timeold=0.0
 def odom_callback(config):
-
-
+    global timeold
+    timenow=rospy.get_time()
+    if timenow - timeold > 0.5:
     # 计算当前位置和之前位置的距离
-    delta_distance = math.sqrt((config.x - config.prev_x)**2 + (config.y - config.prev_y)**2)
-    config.distance += delta_distance
+        timeold= timenow
+        delta_distance = math.sqrt((config.x - config.prev_x)**2 + (config.y - config.prev_y)**2)
+        config.distance += delta_distance
 
-    # 更新之前的位置
-    config.prev_x = config.x
-    config.prev_y = config.y
-    #print("当前总里程: %.2f 米", config.distance)
+        # 更新之前的位置
+        config.prev_x = config.x
+        config.prev_y = config.y
+        #print("当前总里程: %.2f 米", config.distance)
 
 def save(time,distance,count,m,chizu):
     file_name = "/home/frienkie/result/data.xlsx"
@@ -162,6 +165,12 @@ def set_robot_position(model_name, position, orientation):
             rospy.logwarn(f"Failed to move {model_name}: {resp.status_message}")
     except rospy.ServiceException as e:
         rospy.logerr(f"Service call failed: {e}")
+    cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+    stop_cmd = Twist()
+    rate = rospy.Rate(10)
+    for _ in range(10):  # 连续发送一段时间，确保停止
+        cmd_vel_pub.publish(stop_cmd)
+        rate.sleep()
 
 def read_last_value_from_column():
     # 读取Excel文件
@@ -194,7 +203,7 @@ def start_rosbag():
     """
     count = read_last_value_from_column()
     
-    record_topics = ["/cmd_vel", "/cmd_vel_human"]  # 示例话题
+    record_topics = ["/cmd_vel", "/cmd_vel_human", "/odom"]  # 示例话题
     output_file = "rosbag"
     output_file = output_file +str(count)
     global rosbag_process
