@@ -20,7 +20,8 @@ from tf.transformations import euler_from_quaternion
 from std_msgs.msg import Float64
 from visualization_msgs.msg import Marker
 from distancetime import *
-
+import signal
+import sys
 
 
 class Config():
@@ -505,7 +506,12 @@ human=Twist()
 human_r=float("inf")
 ob_costly=Float64()
 
+def signal_handler(signal, frame):
+    print("\nCtrl + C  is pressed,exit sys")
+    sys.exit(0)  # 退出程序
 
+# 绑定 SIGINT 信号（Ctrl + C）到 signal_handler
+signal.signal(signal.SIGINT, signal_handler)
 
 def main():
     print(__file__ + " start!!")

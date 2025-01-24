@@ -17,10 +17,12 @@ from geometry_msgs.msg import Twist, Point
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
-from std_msgs.msg import Float64
+from std_msgs.msg import Float32
 from visualization_msgs.msg import Marker
 from distancetime import *
 import json
+import signal
+import sys
 import argparse
 parser = argparse.ArgumentParser(description="设置参数")
 
@@ -41,8 +43,8 @@ class Config():
         self.min_speed = 0.0  # [m/s]
         self.max_yawrate = 0.6  # [rad/s]
 
-        self.max_accel = 1.0  # [m/ss]
-        self.max_dyawrate = 2.8  # [rad/ss]
+        self.max_accel = 2.5  # [m/ss]
+        self.max_dyawrate = 3.2  # [rad/ss]
         ##################################################33
         self.v_reso = 0.04  # [m/s]
         self.yawrate_reso = 0.04  # [rad/s]
@@ -105,6 +107,7 @@ class Obstacles():
     def __init__(self):
         # Set of coordinates of obstacles in view
         self.obst = set()
+        self.minx = 3.5
 
     def assignObs1(self, msg, config):
 
@@ -112,6 +115,11 @@ class Obstacles():
         # print("Laser degree length {}".format(deg))
         self.obst = set()   # reset the obstacle set to only keep visible objects
         scan_range = []
+        self.minx=min(msg.ranges)
+        # if self.minx<0.12:
+        #     self.minx=0.12
+        if self.minx>3.5:
+            self.minx=3.5
         for i in range(len(msg.ranges)):
             # if msg.ranges[i] == float('Inf'):
             if msg.ranges[i]>3.5:
@@ -243,8 +251,8 @@ def calc_final_input(x, u, dw, config, ob):
     # list_y.clear()
     global angle_robot
     # evaluate all trajectory with sampled input in dynamic window
-    for v in np.arange(config.min_speed, config.max_speed+config.v_reso, config.v_reso):
-        for w in np.arange(-config.max_yawrate, config.max_yawrate+config.yawrate_reso, config.yawrate_reso):
+    for v in np.arange(dw[0], dw[1]+config.v_reso, config.v_reso):
+        for w in np.arange(dw[2], dw[3]+config.yawrate_reso, config.yawrate_reso):
             traj = calc_trajectory(xinit, v, w, config)
             
             # calc costs with weighted gains
@@ -356,6 +364,11 @@ def atGoal(config):
         return 1
     return 0
 
+def atGoal0(config):
+    # check at goal
+    if config.x>=4:
+        return 1
+    return 0
 
 def cal_angle(v,w):
     if v==0:
@@ -517,6 +530,12 @@ human=Twist()
 human_r=float("inf")
 inputkey=0
 
+def signal_handler(signal, frame):
+    print("\nCtrl + C  is pressed,exit sys")
+    sys.exit(0)  # 退出程序
+
+# 绑定 SIGINT 信号（Ctrl + C）到 signal_handler
+signal.signal(signal.SIGINT, signal_handler)
 
 def main():
     print(__file__ + " start!!")
@@ -538,10 +557,13 @@ def main():
     obs = Obstacles()
     counter = StringMessageCounter()
 
+    # model_name = "turtlebot3_burger"
     model_name = "turtlebot3"
     # 指定目标位置和方向 (四元数)
     target_position = [-3.6, -3.0, 0.0]  # x, y, z
     target_orientation = [0.0, 0.0, 0.707,  0.707]  # x, y, z, w
+    # target_position = [0.0, 0.0, 0.0]  # x, y, z
+    # target_orientation = [0.0, 0.0, 0.0, 0.0]  # x, y, z, w
     set_robot_position(model_name, target_position, target_orientation)
 
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
@@ -552,7 +574,7 @@ def main():
 
     pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
 
-    # human_value_pub = rospy.Publisher('cost', Float64, queue_size = 1)
+    x_value_pub = rospy.Publisher('/min_d', Float32, queue_size = 1)
     # sub_obs = rospy.Subscriber("/gazebo/base_collision",Contact,StringMessageCounter.callbackobs,queue_size=10)
     pub_line = rospy.Publisher('~line_list', Marker, queue_size=10)
     marker_pub = rospy.Publisher('visualization_marker', Marker, queue_size=10)
@@ -589,6 +611,8 @@ def main():
         if yici>0:
             marker_pub.publish(markers)
         pub.publish(speed)
+        x_value_pub.publish(obs.minx)
+
         if atGoal(config)==1:
 
             if yici>0:
@@ -599,9 +623,6 @@ def main():
                 with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
                     json.dump(list(config.xy), f)
                 stop_rosbag()
-                # with open('/home/frienkie/cood/cood.txt', 'w') as file:
-                #     for (x, y) in config.xy:
-                #         file.write(f"{x:.4f} {y:.4f}\n")
                 change_goal(config,rand.get_next())
                 goal_sphere(config)
                 
