@@ -23,6 +23,8 @@ from distancetime import *
 import json
 import signal
 import sys
+from pynput import keyboard  # for keyboard input detect
+import threading
 import argparse
 parser = argparse.ArgumentParser(description="设置参数")
 
@@ -221,12 +223,12 @@ def calc_angle_fromtraj(v, y, config):
     time = 0
     angle =0.0
 
-    while time <= 1.0:
+    while time <= 4.0:
         # store each motion model along a trajectory
         x = motion(x, [v, y], config.dt)
         time += config.showdt # next sample
     if abs(v)<=0.0001:
-        angle=y*1.0
+        angle=y*4.0
         # print(angle)
     else:
         angle=math.atan2(x[1], x[0])
@@ -256,7 +258,7 @@ def calc_final_input(x, u, dw, config, ob):
             traj = calc_trajectory(xinit, v, w, config)
             
             # calc costs with weighted gains
-            to_human_cost = (1-calc_to_human_cost(v,w,config,4)) * config.to_human_cost_gain
+            to_human_cost = (1-calc_to_human_cost(v,w,config,3)) * config.to_human_cost_gain
 
             speed_cost = config.speed_cost_gain *(1-abs(human.linear.x - v)/(config.max_speed-config.min_speed))
 
@@ -311,7 +313,8 @@ def calc_obstacle_cost(traj, ob, config):
 
 ############################################################################333
 def calc_to_human_cost( v, w,config,n):
-    if n==1:
+    global human_angle
+    if n==1:## previous radius cal method
         if w==0:
             robot_r=float("inf")
         else:
@@ -330,19 +333,12 @@ def calc_to_human_cost( v, w,config,n):
                 robot_r=-config.v_reso/config.max_yawrate+0.01
         
         cost = abs(1/human_r - 1/robot_r)/(2*(1/(config.v_reso/config.max_yawrate-0.01)))
-    elif n==3:
+    elif n==3:# final point arctan method
         angle_robot=calc_angle_fromtraj(v, w, config)
-        cost=abs(angle_human-angle_robot)/math.pi
-    elif n==4:
+        cost=abs(angle_human-angle_robot)/5.0
+    elif n==4:# w minus directly
         robot_angle=w
         cost = abs(human_angle-robot_angle)/(config.max_yawrate*2)
-    else:
-        robot_angle=cal_angle(v,w)
-        cost = abs(human_angle-robot_angle)/math.pi
-    # if (np.isinf(robot_r)&np.isinf(human_r)):
-    #     cost=0
-    # else:
-    #     cost =abs(robot_r-human_r)
 
     return cost
 ##################################################################################
@@ -370,16 +366,8 @@ def atGoal0(config):
         return 1
     return 0
 
-def cal_angle(v,w):
-    if v==0:
-        angle=w+math.pi/2
-    else:
-        y=v*math.cos(w)
-        x=v*math.sin(w)
-        angle = math.atan2(y, x)
-    return angle
 
-human_angle=math.pi/2
+human_angle=0
 angle_human=0
 yici=1
 
@@ -405,7 +393,7 @@ def share1(vel_msg,config):# human command get 获取人类指令
         human.linear.x = 0.0
     # human_angle=cal_angle(human.linear.x,human.angular.z)
 
-    # angle_human=calc_angle_fromtraj(human.linear.x,human.angular.z,config)
+    angle_human=calc_angle_fromtraj(human.linear.x,human.angular.z,config)
 
     # print(human.angular.z,angle_human)
 
@@ -529,6 +517,7 @@ def change_goal(config,n):
 human=Twist()
 human_r=float("inf")
 inputkey=0
+write=0
 
 def signal_handler(signal, frame):
     print("\nCtrl + C  is pressed,exit sys")
@@ -536,6 +525,22 @@ def signal_handler(signal, frame):
 
 # 绑定 SIGINT 信号（Ctrl + C）到 signal_handler
 signal.signal(signal.SIGINT, signal_handler)
+
+def listen_key():
+    global write
+
+    def on_press(key):
+        global write
+        try:
+            if key.char == 'y':  # 检测键盘输入 y
+                write = 1
+                print("Key 'y' detected. Variable 'write' set to 1.")
+        except AttributeError:
+            pass
+
+    # 启动监听器
+    with keyboard.Listener(on_press=on_press) as listener:
+        listener.join()
 
 def main():
     print(__file__ + " start!!")
@@ -566,6 +571,8 @@ def main():
     # target_orientation = [0.0, 0.0, 0.0, 0.0]  # x, y, z, w
     set_robot_position(model_name, target_position, target_orientation)
 
+    threading.Thread(target=listen_key, daemon=True).start()
+
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
     subLaser = rospy.Subscriber("/scan", LaserScan, obs.assignObs1, config)
 
@@ -588,6 +595,7 @@ def main():
     u = np.array([0.0, 0.0])
 
     file_value=start_rosbag()
+    print("You can press y to stop and save rosbag when you need.")
     start_time = rospy.get_time()
     # runs until terminated externally
     while not rospy.is_shutdown():
@@ -613,7 +621,7 @@ def main():
         pub.publish(speed)
         x_value_pub.publish(obs.minx)
 
-        if atGoal(config)==1:
+        if atGoal(config)==1 or write==1:
 
             if yici>0:
                 print("YOU have arrive the goal point")
