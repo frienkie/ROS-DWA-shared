@@ -223,14 +223,15 @@ def calc_angle_fromtraj(v, y, config):
     time = 0
     angle =0.0
 
-    while time <= 4.0:
-        # store each motion model along a trajectory
-        x = motion(x, [v, y], config.dt)
-        time += config.showdt # next sample
-    if abs(v)<=0.0001:
-        angle=y*4.0
-        # print(angle)
+    if abs(v)==0.0:
+        angle=y
     else:
+        while time <= 4.0:
+        # store each motion model along a trajectory
+            x = motion(x, [v, y], config.dt)
+            time += config.showdt # next sample
+    
+        # print(angle)
         angle=math.atan2(x[1], x[0])
     #print(angle)
     return angle
@@ -314,6 +315,7 @@ def calc_obstacle_cost(traj, ob, config):
 ############################################################################333
 def calc_to_human_cost( v, w,config,n):
     global human_angle
+    global angle_human
     if n==1:## previous radius cal method
         if w==0:
             robot_r=float("inf")
@@ -335,7 +337,7 @@ def calc_to_human_cost( v, w,config,n):
         cost = abs(1/human_r - 1/robot_r)/(2*(1/(config.v_reso/config.max_yawrate-0.01)))
     elif n==3:# final point arctan method
         angle_robot=calc_angle_fromtraj(v, w, config)
-        cost=abs(angle_human-angle_robot)/5.0
+        cost=abs(angle_human-angle_robot)/(config.max_yawrate*2)
     elif n==4:# w minus directly
         robot_angle=w
         cost = abs(human_angle-robot_angle)/(config.max_yawrate*2)
@@ -394,6 +396,7 @@ def share1(vel_msg,config):# human command get 获取人类指令
     # human_angle=cal_angle(human.linear.x,human.angular.z)
 
     angle_human=calc_angle_fromtraj(human.linear.x,human.angular.z,config)
+    # print(angle_human)
 
     # print(human.angular.z,angle_human)
 
