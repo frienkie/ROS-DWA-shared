@@ -21,6 +21,8 @@ from distancetime import *
 import json
 import signal
 import sys
+from pynput import keyboard  # for keyboard input detect
+import threading
 import argparse
 
 # 创建解析器
@@ -42,12 +44,13 @@ class Config():
         #NOTE good params:
         #NOTE 0.55,0.1,1.0,1.6,3.2,0.15,0.05,0.1,1.7,2.4,0.1,3.2,0.18
         self.max_speed = 0.2  # [m/s]
-        self.min_speed = 0.0  # [m/s]
+        self.min_speed = -0.08  # [m/s]
         self.max_yawrate = 0.6  # [rad/s]
         self.max_accel = 2.5  # [m/ss]
         self.max_dyawrate = 3.2  # [rad/ss]
         self.v_reso = 0.04  # [m/s]
         self.yawrate_reso = math.pi / 12 # [rad/s]
+        # self.yawrate_reso = 0.04 # [rad/s]
         self.dt = 0.2  # [s]
         self.predict_time = 4.0  # [s]
         if args.param == 1:
@@ -71,21 +74,29 @@ class Config():
         self.prev_x = 0.0
         self.prev_y = 0.0
         self.distance = 0.0
+        self.prev_distance = -10.0
+        self.first_time=True
         self.xy = set()
         self.r = rospy.Rate(20)
 
     # Callback for Odometry
     def assignOdomCoords(self, msg):
         # X- and Y- coords and pose of robot fed back into the robot config
+        
         self.x = msg.pose.pose.position.x
         self.y = msg.pose.pose.position.y
         rot_q = msg.pose.pose.orientation
         (roll,pitch,theta) = \
             euler_from_quaternion ([rot_q.x,rot_q.y,rot_q.z,rot_q.w])
         self.th = theta
-        # print(self.th)
         self.xy.add((self.x,self.y))
+        if self.first_time:  # 只在第一次执行
+            self.prev_x = self.x
+            self.prev_y = self.y
+            self.first_time = False  # 之后不会再执行
         odom_callback(self)
+        # print("当前now: %.2f , %.2f", self.prev_x,self.prev_y)
+
 
 class Obstacles():
     def __init__(self):
@@ -185,6 +196,10 @@ def calc_final_input(x, u, dw, config, ob):
     # evaluate all trajectory with sampled input in dynamic window
     for v in np.arange(dw[0], dw[1]+config.v_reso, config.v_reso):
         for w in np.arange(dw[2], dw[3]+config.yawrate_reso, config.yawrate_reso):
+            w = np.round(w, 2)
+            if (v==0.0 and w!=0.0):
+                continue
+            
             traj = calc_trajectory(xinit, v, w, config)
 
             # calc costs with weighted gains
@@ -368,6 +383,23 @@ def signal_handler(signal, frame):
 
 # 绑定 SIGINT 信号（Ctrl + C）到 signal_handler
 signal.signal(signal.SIGINT, signal_handler)
+write=0
+
+def listen_key():
+    global write
+
+    def on_press(key):
+        global write
+        try:
+            if key.char == 'y':  # 检测键盘输入 y
+                write = 1
+                print("Key 'y' detected. Variable 'write' set to 1.")
+        except AttributeError:
+            pass
+
+    # 启动监听器
+    with keyboard.Listener(on_press=on_press) as listener:
+        listener.join()
 
 def main():
     print(__file__ + " start!!")
@@ -392,6 +424,7 @@ def main():
     #subGoal = rospy.Subscriber("/clicked_point", PointStamped, config.goalCB)
     pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
     speed = Twist()
+    threading.Thread(target=listen_key, daemon=True).start()
     # initial state [x(m), y(m), theta(rad), v(m/s), omega(rad/s)]
     x = np.array([config.x, config.y, config.th, 0.0, 0.0])
     # initial linear and angular velocities
@@ -402,18 +435,18 @@ def main():
     start_time = rospy.get_time()
     # runs until terminated externally
     while not rospy.is_shutdown():
-        if (atGoal(config) == False):
-            u = dwa_control(x, u, config, obs.obst)
-            x[0] = config.x
-            x[1] = config.y
-            x[2] = config.th
-            x[3] = u[0]
-            x[4] = u[1]
-            speed.linear.x = x[3]
-            speed.angular.z = x[4]
-            # print(x[0])
+
+        u = dwa_control(x, u, config, obs.obst)
+        x[0] = config.x
+        x[1] = config.y
+        x[2] = config.th
+        x[3] = u[0]
+        x[4] = u[1]
+        speed.linear.x = x[3]
+        speed.angular.z = x[4]
+        # print(x[0])
             
-        else:
+        if (atGoal(config) == 1 or write==1):
             # if at goal then stay there until new goal published
             global yici
             if yici>0:

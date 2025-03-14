@@ -6,6 +6,7 @@ from visualization_msgs.msg import Marker
 from openpyxl import Workbook, load_workbook # type: ignore
 import os
 from gazebo_model_collision_plugin.msg import Contact
+from geometry_msgs.msg import Twist
 import random
 from gazebo_msgs.srv import SetModelState
 from gazebo_msgs.msg import ModelState
@@ -50,20 +51,17 @@ def get_time(start_time):
     return elapsed_time
 
 
-timeold=0.0
 def odom_callback(config):
-    global timeold
-    timenow=rospy.get_time()
-    if timenow - timeold > 0.5:
-    # 计算当前位置和之前位置的距离
-        timeold= timenow
-        delta_distance = math.sqrt((config.x - config.prev_x)**2 + (config.y - config.prev_y)**2)
-        config.distance += delta_distance
+    delta_distance = math.sqrt((config.x - config.prev_x)**2 + (config.y - config.prev_y)**2)
+    if delta_distance<0.0001:
+        delta_distance=0.0
+    config.distance += delta_distance
+    config.prev_x = config.x
+    config.prev_y = config.y
+    # 更新之前的位置
+    # print("当前prev: %.2f , %.2f", config.prev_x,config.prev_y)
+    # print("当前总里程: %.2f 米", config.distance)
 
-        # 更新之前的位置
-        config.prev_x = config.x
-        config.prev_y = config.y
-        #print("当前总里程: %.2f 米", config.distance)
 
 def save(time,distance,count,m,chizu):
     file_name = "/home/frienkie/result/data.xlsx"
@@ -201,11 +199,15 @@ def start_rosbag():
     :param record_topics: 要记录的 ROS 话题列表，字符串或列表形式
     :param output_file: rosbag 保存的文件路径，不需要后缀名
     """
-    count = read_last_value_from_column()
-    
-    record_topics = ["/cmd_vel", "/cmd_vel_human", "/odom"]  # 示例话题
-    output_file = "rosbag"
-    output_file = output_file +str(count)
+    count=read_last_value_from_column()
+    record_topics = ["/cmd_vel", "/cmd_vel_human", "/odom", "/min_d"]  # 话题
+
+    rosbag_dir = os.path.expanduser("~/rosbag")  # Expands to /home/user/rosbag
+    os.makedirs(rosbag_dir, exist_ok=True)  # Ensure directory exists
+
+    # Output file path
+    output_file = os.path.join(rosbag_dir, f"rosbag{count}")
+
     global rosbag_process
     # 构建 rosbag record 命令
     cmd = ["rosbag", "record", "-O", output_file]
