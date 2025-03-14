@@ -25,14 +25,11 @@ import signal
 import sys
 from pynput import keyboard  # for keyboard input detect
 import threading
-import argparse
-parser = argparse.ArgumentParser(description="设置参数")
+from obstacle_detector.msg import Obstacles
+
+
 
 # 添加参数
-parser.add_argument("--param", type=int, required=True, help="参数值")
-
-# 解析参数
-args = parser.parse_args()
 
 class Config():
     # simulation parameters
@@ -42,7 +39,7 @@ class Config():
         #NOTE good params:
         #NOTE 0.55,0.1,1.0,1.6,3.2,0.15,0.05,0.1,1.7,2.4,0.1,3.2,0.18
         self.max_speed = 0.20  # [m/s]
-        self.min_speed = -0.08  # [m/s]
+        self.min_speed = 0.0  # [m/s]
         self.max_yawrate = 0.6  # [rad/s]
 
         self.max_accel = 2.5  # [m/ss]
@@ -51,8 +48,8 @@ class Config():
         self.v_reso = 0.04  # [m/s]
         self.yawrate_reso = 0.04  # [rad/s]
         #######################################################
-        self.dt = 0.5  # [s]
-        self.predict_time = 2.5  # [s]
+        self.dt = 0.4  # [s]
+        self.predict_time = 2.4  # [s]
         self.showpredict_time = 3.0  # [s]
         self.showdt = 1.0
         self.goal_radius=0.4
@@ -60,18 +57,11 @@ class Config():
         # self.speed_cost_gain = 1.5 
         # self.obs_cost_gain = 1.0
         # self.to_human_cost_gain =0.5
-        if args.param == 1:
-            self.to_human_cost_gain = 1.0 #lower = detour
-            self.speed_cost_gain = 2.0 #lower = faster
-            self.obs_cost_gain = 1.0 #lower z= fearless
-        if args.param == 2:
-            self.to_human_cost_gain = 1.0 #lower = detour
-            self.speed_cost_gain = 1.0 #lower = faster
-            self.obs_cost_gain = 2.0 #lower z= fearless
-        if args.param == 3:
-            self.to_human_cost_gain = 2.0 #lower = detour
-            self.speed_cost_gain = 1.0 #lower = faster
-            self.obs_cost_gain = 1.0 #lower z= fearless
+
+        self.to_human_cost_gain = 1.0 #lower = detour
+        self.speed_cost_gain = 2.0 #lower = faster
+        self.obs_cost_gain = 1.0 #lower z= fearless
+
         #############################
         self.robot_radius = 0.106  # [m]
         self.x = 0.0
@@ -105,6 +95,7 @@ class Config():
             self.prev_y = self.y
             self.first_time = False  # 之后不会再执行
         odom_callback(self)
+        # print("当前now: %.2f , %.2f", self.prev_x,self.prev_y)
 
 
 
@@ -113,16 +104,37 @@ class Config():
         self.goalX = msg.point.x
         self.goalY = msg.point.y
 
-class Obstacles():
+class getObstacles():
     def __init__(self):
         # Set of coordinates of obstacles in view
         self.obst = set()
         self.obs1 = set()
+        # self.obs2 = set()
         self.minx = 3.5
         self.deltx = 0.15
         self.index = 0
-        # self.obstacle_list = []  # 先用列表存储，再一次性加入 set
 
+    def generate_points(self,start, end, step=0.01):
+        points = []
+        distance = np.linalg.norm([end.x - start.x, end.y - start.y])  # 计算线段长度
+        num_points = int(distance / step)  # 计算要生成的点数
+        points.append((round(end.x, 3), round(end.y, 3)))
+        for i in range(num_points):  # +1 确保终点包含在内
+            if num_points==0:
+                break
+            x = start.x + (end.x - start.x) * (i / num_points)
+            y = start.y + (end.y - start.y) * (i / num_points)
+            points.append((round(x, 3), round(y, 3)))  # 保留三位小数，提高 set 兼容性
+
+        return points
+    def callback(self,msg):
+        # rospy.loginfo("Received Obstacles Message")
+        self.obst = set()
+        for segment in msg.segments:
+            p1, p2 = segment.first_point, segment.last_point
+            segment_points = self.generate_points(p1, p2)
+            self.obst.update(segment_points)  # 存入 set 集合，自动去重
+            # rospy.loginfo(f"Segment ({p1.x}, {p1.y}) -> ({p2.x}, {p2.y}) added {len(segment_points)} points")
 
     def assignObs(self, msg, config):
 
@@ -164,11 +176,56 @@ class Obstacles():
             config.prev_distance=config.distance
         self.obst= self.obs1 | self.obst
 
+    def assignObs1(self, msg, config):
+
+        deg = len(msg.ranges)   # Number of degrees - varies in Sim vs real world
+        # print(deg)
+        # print("Laser degree length {}".format(deg))
+        self.obs1 = set()   # reset the obstacle set to only keep visible objects
+        self.minx=min(msg.ranges)
+        
+        if self.minx>3.5:
+            self.minx=3.5
+        for i in range(len(msg.ranges)):
+            if msg.ranges[i]>config.maxdect:
+                continue
+            elif np.isnan(msg.ranges[i]):
+                distance = config.mindect
+
+            else:
+                distance = msg.ranges[i]
+                
+
+            #degree and rad
+            deg = (360)/len(msg.ranges)
+            rad = (2*math.pi)/len(msg.ranges)
+            objTheta_rad = rad * i
+            objTheta_deg = deg * i
+
+            #local(robot)
+            obsX_robo = distance * math.cos(abs(objTheta_rad))
+            obsY_robo = distance * math.sin(abs(objTheta_rad))
+
+            #global
+            obsX = obsX_robo * math.cos(config.th) - obsY_robo * math.sin(config.th) + config.x
+            obsY = obsX_robo * math.sin(config.th) + obsY_robo * math.cos(config.th) + config.y
+            # all obastacle data
+            self.obs1.add((obsX,obsY))
+        # if config.distance-config.prev_distance>self.deltx:
+        #     if self.index == 0:
+        #         self.obs1 = self.obst.copy()
+        #     # elif self.index == 1:
+        #     #     self.obs2 = self.obst.copy()
+        #     self.index = (self.index + 1) % 1
+        #     config.prev_distance=config.distance
+        # self.obst= self.obs1 | self.obst
+
 
 # Model to determine the expected position of the robot after moving along trajectory
 def motion(x, u, dt):
     # motion model
     # x = [x(m), y(m), theta(rad), v(m/s), omega(rad/s)]
+    # x[2] += u[1] * dt
     x[0] += u[0] * math.cos(x[2]) * dt
     x[1] += u[0] * math.sin(x[2]) * dt
     x[2] += u[1] * dt
@@ -259,7 +316,7 @@ def calc_final_input(x, u, dw, config, ob):
     xinit = x[:]######
     max_cost = 0.0
     max_u = u
-    max_u[0] = 0.0 #全部为死路
+    max_u[0] = 0.0 #no way can be chosen
     max_u[1] = human.angular.z
     global angle_robot
     # evaluate all trajectory with sampled input in dynamic window
@@ -268,7 +325,7 @@ def calc_final_input(x, u, dw, config, ob):
             w = np.round(w, 2)
             if (v==0.0 and w!=0.0):
                 continue
-            
+
             traj = calc_trajectory(xinit, v, w, config)
             
             # calc costs with weighted gains
@@ -282,7 +339,8 @@ def calc_final_input(x, u, dw, config, ob):
                 continue
 
             final_cost = to_human_cost + speed_cost + ob_cost
-            
+            # if (v==0.0 and w==0.0):
+            #     print(final_cost)
 
             # search minimum trajectory     ##最大代价
             if max_cost <= final_cost:
@@ -397,10 +455,10 @@ def share1(vel_msg,config):# human command get 获取人类指令
     
 
     human.linear.x=vel_msg.linear.x
-
     
     if human.linear.x<-0.08:
         human.linear.x=-0.08
+
     human.angular.z=vel_msg.angular.z
 
     human_angle=human.angular.z
@@ -511,8 +569,8 @@ class RandomNumberGenerator:
 def change_goal(config,n):
     global yici
     if n==0:
-        config.goalX=-4.0
-        config.goalY=10.0
+        config.goalX=-3.6
+        config.goalY=-3.0
     if n==1:
         config.goalX=-3.8
         config.goalY=8.5
@@ -560,13 +618,13 @@ def listen_key():
         listener.join()
 
 def main():
-    global yici
     global write
+    global yici
+
     print(__file__ + " start!!")
-    print("which map is used now?")
-    chizu=input()
     print("human is 0,share is 1")
     inputs=input()
+    # inputs="1"
     if inputs=="0":
             inputkey=0
     elif inputs=="1":
@@ -578,7 +636,7 @@ def main():
     rand=RandomNumberGenerator()
     config = Config()
     # position of obstacles
-    obs = Obstacles()
+    obs = getObstacles()
     counter = StringMessageCounter()
 
     # model_name = "turtlebot3_burger"
@@ -590,12 +648,13 @@ def main():
     # target_orientation = [0.0, 0.0, 0.0, 0.0]  # x, y, z, w
     set_robot_position(model_name, target_position, target_orientation)
 
-    counter = StringMessageCounter()
     threading.Thread(target=listen_key, daemon=True).start()
 
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
     # subLaser = rospy.Subscriber("/scan", LaserScan, obs.assignObs, config)
+    # subLaser = rospy.Subscriber("/filtered_scan", LaserScan, obs.assignObs1, config)
     subLaser = rospy.Subscriber("/filtered_scan", LaserScan, obs.assignObs, config)
+    # obssub = rospy.Subscriber("/raw_obstacles", Obstacles, obs.callback)
 
     sub_hum = rospy.Subscriber("/cmd_vel_human",Twist,share1,config,queue_size=1)
 
@@ -614,12 +673,13 @@ def main():
     # initial linear and angular velocities
     u = np.array([0.0, 0.0])
 
-    file_value=start_rosbag()
+    # file_value=start_rosbag()
     print("You can press y to stop and save rosbag when you need.")
-    start_time = rospy.get_time()
+    # start_time = rospy.get_time()
     # runs until terminated externally
     while not rospy.is_shutdown():
-
+        # global yici
+        
         if (inputkey== 1):
             u = dwa_control(x, u, config, obs.obst)
             x[0] = config.x
@@ -636,23 +696,33 @@ def main():
             # if 0 then do directly
             speed.linear.x = human.linear.x
             speed.angular.z = human.angular.z
-        if yici>0:
-            marker_pub.publish(markers)
+            if speed.linear.x==0.0:
+                speed.angular.z=0.0
+
+        marker_pub.publish(markers)
         pub.publish(speed)
         x_value_pub.publish(obs.minx)
 
-        if atGoal(config)==1 or write==1:
+        if write==1:
 
             if yici>0:
                 print("YOU have arrive the goal point")
-                save(get_time(start_time),config.distance,counter.send_count,inputkey,args.param,chizu)
-                print("distance in this time: %.2f m" % config.distance)
-                print("hit time: %d " % counter.send_count)
-                with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
+                # save(get_time(start_time),config.distance,counter.send_count,inputkey,args.param,chizu)
+                # print("distance in this time: %.2f m" % config.distance)
+                # print("hit time: %d " % counter.send_count)
+                with open(f'/home/frienkie/cood/obs.txt', 'w') as f:
+                    json.dump(list(obs.obst), f)
+                with open(f'/home/frienkie/cood/obs1.txt', 'w') as f:
+                    json.dump(list(obs.obs1), f)
+                # with open(f'/home/frienkie/cood/obs2.txt', 'w') as f:
+                #     json.dump(list(obs.obs2), f)
+                # stop_rosbag()
+                with open('/home/frienkie/cood/test0.txt', 'w') as f:
                     json.dump(list(config.xy), f)
-                stop_rosbag()
                 change_goal(config,rand.get_next())
                 goal_sphere(config)
+                write=0
+                yici=1
                 
             
         config.r.sleep()

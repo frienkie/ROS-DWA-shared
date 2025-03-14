@@ -1,88 +1,127 @@
-#!/usr/bin/env python
 import rospy
 from gazebo_msgs.srv import SpawnModel
 from geometry_msgs.msg import Pose
 import numpy as np
-def spawn_box(name, x, y, z):
-    """
-    生成一个长方体模型。
-    :param name: 模型名称
-    :param x: X 坐标
-    :param y: Y 坐标
-    :param z: Z 坐标
-    """
-    rospy.wait_for_service('/gazebo/spawn_sdf_model')
-    spawn_model = rospy.ServiceProxy('/gazebo/spawn_sdf_model', SpawnModel)
+import random
 
-    # 定义一个简单的 SDF 模型，尺寸为 0.2 x 0.2 x 0.3
-    box_sdf = f"""
-    <?xml version="1.0" ?>
-    <sdf version="1.6">
-      <model name="{name}">
-        <static>true</static>
-        <link name="link">
-          <visual name="visual">
-            <geometry>
-              <box>
-                <size>0.2 0.2 0.3</size>
-              </box>
-            </geometry>
-            <material>
-                <ambient>0.4235 0.4235 0.4235 1</ambient>
-                <diffuse>0.4235 0.4235 0.4235 1</diffuse>
-            </material>
-          </visual>
-          <collision name="collision">
-            <geometry>
-              <box>
-                <size>0.2 0.2 0.3</size>
-              </box>
-            </geometry>
-          </collision>
-          <inertial>
-            <mass>1.0</mass>
-          </inertial>
-        </link>
-      </model>
-    </sdf>
-    """
+# SDF 模板
+BOX_SDF_TEMPLATE = """
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <model name="{name}">
+    <static>true</static>
+    <link name="link">
+      <visual name="visual">
+        <geometry>
+          <box>
+            <size>0.2 0.2 0.3</size>
+          </box>
+        </geometry>
+        <material>
+            <ambient>0.4235 0.4235 0.4235 1</ambient>
+            <diffuse>0.4235 0.4235 0.4235 1</diffuse>
+        </material>
+      </visual>
+      <collision name="collision">
+        <geometry>
+          <box>
+            <size>0.2 0.2 0.3</size>
+          </box>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass>1.0</mass>
+      </inertial>
+    </link>
+  </model>
+</sdf>
+"""
 
+def poisson_disk_sampling(width, height, r, k, num_samples):
+    """
+    使用泊松盘采样生成点，确保最小间距为 r。
+    width, height: 采样区域大小
+    r: 最小距离
+    k: 每个点的最大尝试数
+    num_samples: 需要生成的点数
+    """
+    cell_size = r / np.sqrt(2)
+    grid_width = int(width / cell_size) + 1
+    grid_height = int(height / cell_size) + 1
+    grid = [[-1 for _ in range(grid_width)] for _ in range(grid_height)]
+    
+    def in_bounds(pt):
+        return 0 <= pt[0] < width and 0 <= pt[1] < height
+    
+    def distance(pt1, pt2):
+        return np.linalg.norm(np.array(pt1) - np.array(pt2))
+    
+    def is_valid(pt):
+        gx, gy = int(pt[0] / cell_size), int(pt[1] / cell_size)
+        for dx in range(-2, 3):
+            for dy in range(-2, 3):
+                nx, ny = gx + dx, gy + dy
+                if 0 <= nx < grid_width and 0 <= ny < grid_height:
+                    index = grid[ny][nx]
+                    if index != -1 and distance(pts[index], pt) < r:
+                        return False
+        return True
+    
+    pts = []
+    process_list = []
+    first_pt = (random.uniform(0, width), random.uniform(0, height))
+    pts.append(first_pt)
+    process_list.append(first_pt)
+    grid[int(first_pt[1] / cell_size)][int(first_pt[0] / cell_size)] = 0
+    
+    while process_list and len(pts) < num_samples:
+        idx = random.randint(0, len(process_list) - 1)
+        base_pt = process_list[idx]
+        found = False
+        
+        for _ in range(k):
+            angle = random.uniform(0, 2 * np.pi)
+            radius = random.uniform(r, 2 * r)
+            new_pt = (base_pt[0] + radius * np.cos(angle), base_pt[1] + radius * np.sin(angle))
+            
+            if in_bounds(new_pt) and is_valid(new_pt):
+                pts.append(new_pt)
+                process_list.append(new_pt)
+                gx, gy = int(new_pt[0] / cell_size), int(new_pt[1] / cell_size)
+                grid[gy][gx] = len(pts) - 1
+                found = True
+                break
+        
+        if not found:
+            process_list.pop(idx)
+    print(len(pts))
+    return pts[:num_samples]
+
+def spawn_box(name, x, y, z, spawn_model):
     pose = Pose()
     pose.position.x = x
     pose.position.y = y
     pose.position.z = z
-    
-    # 调用 Gazebo 服务生成模型
-    spawn_model(name, box_sdf, "", pose, "world")
+    box_sdf = BOX_SDF_TEMPLATE.format(name=name)
+    try:
+        spawn_model(name, box_sdf, "", pose, "world")
+        rospy.loginfo(f"成功生成: {name} ({x}, {y}, {z})")
+    except rospy.ServiceException as e:
+        rospy.logerr(f"生成 {name} 失败: {e}")
 
 if __name__ == "__main__":
-    rospy.init_node('spawn_boxes')
+    rospy.init_node('spawn_poisson_boxes')
+    rospy.wait_for_service('/gazebo/spawn_sdf_model')
+    spawn_model = rospy.ServiceProxy('/gazebo/spawn_sdf_model', SpawnModel)
     
+    min_distance = 0.4
+    num_boxes = 450
+    width, height = 4, 12  # X, Y 轴范围大小
+    start_x, start_y = -6.0, -3.0
+    start_z = 0.15
+    k=30
+    positions = poisson_disk_sampling(width, height, min_distance, k , num_boxes)
+    positions = [(start_x + x, start_y + y) for x, y in positions]
     
-    spacing = 0.45  # 间隔距离
-    start_x = -5.6  # 起始 X 坐标-5.25
-    start_y = -1.4  # 起始 Y 坐标-1.05
-    end_x=-1.78
-    end_y=7.8
-    start_z = 0.15  # 起始 Z 坐标 (长方体高度一半)
-
-    x_coords = np.arange(start_x, end_x, spacing*2)
-    y_coords = np.arange(start_y, end_y, spacing*2)
-
-    # 遍历生成所有坐标点的模型
-    box_count = 1
-    for x in x_coords:
-        for y in y_coords:
-            box_name = f"box_{box_count}"
-            spawn_box(box_name, x, y, start_z)
-            box_count += 1
-    start_x=spacing+start_x
-    start_y=spacing+start_y
-    x_coords = np.arange(start_x, end_x, spacing*2)
-    y_coords = np.arange(start_y, end_y, spacing*2)
-
-    for x in x_coords:
-        for y in y_coords:
-            box_name = f"box_{box_count}"
-            spawn_box(box_name, x, y, start_z)
-            box_count += 1
+    for i, (x, y) in enumerate(positions):
+        spawn_box(f"box_{i+1}", x, y, start_z, spawn_model)

@@ -55,19 +55,16 @@ def get_time(start_time):
     print("spend time: %.2f 秒" % elapsed_time)
     return elapsed_time
 
-timeold=0.0
 def odom_callback(config):
-    global timeold
-    timenow=rospy.get_time()
-    if timenow - timeold > 1.5:
-    # 计算当前位置和之前位置的距离
-        timeold= timenow
-        delta_distance = math.sqrt((config.x - config.prev_x)**2 + (config.y - config.prev_y)**2)
-        config.distance += delta_distance
-        # 更新之前的位置
-        config.prev_x = config.x
-        config.prev_y = config.y
-        #print("当前总里程: %.2f 米", config.distance)
+    delta_distance = math.sqrt((config.x - config.prev_x)**2 + (config.y - config.prev_y)**2)
+    if delta_distance<0.0001:
+        delta_distance=0.0
+    config.distance += delta_distance
+    config.prev_x = config.x
+    config.prev_y = config.y
+    # 更新之前的位置
+    # print("当前prev: %.2f , %.2f", config.prev_x,config.prev_y)
+    # print("当前总里程: %.2f 米", config.distance)
 
 def save(time,distance,count,n,m,chizu):# n is direct switch,m is para
     file_name = "/home/frienkie/result/data.xlsx"
@@ -152,7 +149,7 @@ class StringMessageCounter:
         if self.jyotai==1:
             self.feedback=JoyFeedbackArray(array=[self.vibra])
             self.vibration.publish(self.feedback)
-            rospy.sleep(1.2)
+            time.sleep(1.2)
             self.jyotai=0
         else:
             self.feedback=JoyFeedbackArray(array=[self.novibra])
@@ -236,8 +233,13 @@ def start_rosbag():
     """
     count=read_last_value_from_column()
     record_topics = ["/cmd_vel", "/cmd_vel_human", "/odom", "/min_d"]  # 话题
-    output_file = "rosbag"
-    output_file = output_file +str(count)
+
+    rosbag_dir = os.path.expanduser("~/rosbag")  # Expands to /home/user/rosbag
+    os.makedirs(rosbag_dir, exist_ok=True)  # Ensure directory exists
+
+    # Output file path
+    output_file = os.path.join(rosbag_dir, f"rosbag{count}")
+
     global rosbag_process
     # 构建 rosbag record 命令
     cmd = ["rosbag", "record", "-O", output_file]
