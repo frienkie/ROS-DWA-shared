@@ -63,7 +63,7 @@ class Config():
         self.obs_cost_gain = 1.0 #lower z= fearless
 
         #############################
-        self.robot_radius = 0.106  # [m]
+        self.robot_radius = 0.12  # [m]
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
@@ -72,10 +72,12 @@ class Config():
         self.prev_x = 0.0
         self.prev_y = 0.0
         self.distance = 0.0
-        self.prev_distance = -10.0
         self.first_time=True
         self.mindect=0.12
         self.maxdect=1.2
+        self.prev_x0= 0.0
+        self.prev_y0= 0.0
+        self.distance0=0.0
         self.xy = set()
         self.r = rospy.Rate(20)
 
@@ -93,7 +95,10 @@ class Config():
         if self.first_time:  # 只在第一次执行
             self.prev_x = self.x
             self.prev_y = self.y
+            self.prev_x0 =self.x
+            self.prev_y0 =self.y
             self.first_time = False  # 之后不会再执行
+        self.distance0=math.sqrt((self.x - self.prev_x0)**2 + (self.y - self.prev_y0)**2)
         odom_callback(self)
         # print("当前now: %.2f , %.2f", self.prev_x,self.prev_y)
 
@@ -167,14 +172,15 @@ class getObstacles():
 
             # all obastacle data
             self.obst.add((obsX,obsY))
-        if config.distance-config.prev_distance>self.deltx:
+        if config.distance0>self.deltx:
             if self.index == 0:
                 self.obs1 = self.obst.copy()
             # elif self.index == 1:
             #     self.obs2 = self.obst.copy()
             self.index = (self.index + 1) % 1
-            config.prev_distance=config.distance
-        self.obst= self.obs1 | self.obst
+            config.prev_x0=config.x
+            config.prev_y0=config.y
+        #self.obst= self.obs1 | self.obst
 
     def assignObs1(self, msg, config):
 
@@ -254,6 +260,10 @@ def calc_dynamic_window(x, config):
 list_x=[]
 list_y=[]
 line_num=0
+list_x_human=[]
+list_y_human=[]
+line_num_human=0
+
 
 def show_trajectory(xinit, v, y, config):
     global line_num
@@ -269,7 +279,21 @@ def show_trajectory(xinit, v, y, config):
         list_y.append(x[1])
         time += config.dt # next sample
     line_num=len(list_x)
-    
+
+def show_trajectory_human(xinit, v, y, config):
+    global line_num_human
+    x = np.array(xinit)
+    time = 0
+    list_x_human.clear()
+    list_y_human.clear()
+
+    while time <= config.showpredict_time:
+        # store each motion model along a trajectory
+        x = motion(x, [v, y], config.dt)
+        list_x_human.append(x[0])
+        list_y_human.append(x[1])
+        time += config.dt # next sample
+    line_num_human=len(list_x_human)
 
 angle_robot=0.0
 # Calculate a trajectory sampled across a prediction time
@@ -288,22 +312,14 @@ def calc_trajectory(xinit, v, y, config):
 
 def calc_angle_fromtraj(v, y, config):
 
-    x = np.array([0,0,0,v,y])
+    x = np.array([config.x,config.y,config.th,v,y])
     time = 0
-    angle =0.0
-
-    if abs(v)==0.0:
-        angle=y
-    else:
-        while time <= 4.0:
+    while time <= config.predict_time:
         # store each motion model along a trajectory
-            x = motion(x, [v, y], config.dt)
-            time += config.showdt # next sample
-    
-        # print(angle)
-        angle=math.atan2(x[1], x[0])
-    #print(angle)
-    return angle
+        x = motion(x, [v, y], config.dt)
+        time += config.dt # next sample
+
+    return x[0],x[1]
 
 
 ################################################################################
@@ -329,7 +345,7 @@ def calc_final_input(x, u, dw, config, ob):
             traj = calc_trajectory(xinit, v, w, config)
             
             # calc costs with weighted gains
-            to_human_cost = (1-calc_to_human_cost(v,w,config,3)) * config.to_human_cost_gain
+            to_human_cost = (1-calc_to_human_cost(v,w,config,traj,3)) * config.to_human_cost_gain
 
             speed_cost = config.speed_cost_gain *(1-abs(human.linear.x - v)/(config.max_speed-config.min_speed))
 
@@ -346,14 +362,10 @@ def calc_final_input(x, u, dw, config, ob):
             if max_cost <= final_cost:
                 max_cost = final_cost
                 max_u = [v, w]
-                # trajs=traj
-    # for element in trajs:
-    #                 list_x.append(element[0])
-    #                 list_y.append(element[1])
-    #                 line_num=len(list_x)
-    # print(max_u[0],max_u[1])
+    if max_u[0]==0.0:
+        max_u[1]=human.angular.z
     show_trajectory(xinit, max_u[0], max_u[1], config)
-    
+    show_trajectory_human(xinit, human.linear.x, human.angular.z, config)
     return max_u
 #################################################################################
 
@@ -385,9 +397,9 @@ def calc_obstacle_cost(traj, ob, config):
     return (minr-config.mindect)/(config.maxdect-config.mindect)
 
 ############################################################################333
-def calc_to_human_cost( v, w,config,n):
+def calc_to_human_cost( v, w,config,traj,n):
     global human_angle
-    global angle_human
+    global xr,yr,xh,yh
     if n==1:## previous radius cal method
         if w==0:
             robot_r=float("inf")
@@ -407,9 +419,9 @@ def calc_to_human_cost( v, w,config,n):
                 robot_r=-config.v_reso/config.max_yawrate+0.01
         
         cost = abs(1/human_r - 1/robot_r)/(2*(1/(config.v_reso/config.max_yawrate-0.01)))
-    elif n==3:# final point arctan method
-        angle_robot=calc_angle_fromtraj(v, w, config)
-        cost=abs(angle_human-angle_robot)/(config.max_yawrate*2)
+    elif n==3:# final point distance method
+        xr,yr=traj[-1,0],traj[-1,1]
+        cost=math.sqrt((xh-xr)**2 + (yh-yr)**2)/(2*(config.max_speed-config.min_speed)*config.showpredict_time)
     elif n==4:# w minus directly
         robot_angle=w
         cost = abs(human_angle-robot_angle)/(config.max_yawrate*2)
@@ -442,7 +454,8 @@ def atGoal0(config):
 
 
 human_angle=0
-angle_human=0
+xh=0
+yh=0
 yici=1
 
 def share1(vel_msg,config):# human command get 获取人类指令
@@ -450,15 +463,17 @@ def share1(vel_msg,config):# human command get 获取人类指令
     global human_r
     global inputkey
     global human_angle
-    global angle_human
+    global xh,yh
 
     
 
     human.linear.x=vel_msg.linear.x
     
-    if human.linear.x<-0.08:
-        human.linear.x=-0.08
+    # if human.linear.x<-0.08:
+    #     human.linear.x=-0.08
 
+    if human.linear.x<0.0:
+        human.linear.x=0.0
     human.angular.z=vel_msg.angular.z
 
     human_angle=human.angular.z
@@ -467,28 +482,11 @@ def share1(vel_msg,config):# human command get 获取人类指令
         human.linear.x = 0.0
     # human_angle=cal_angle(human.linear.x,human.angular.z)
 
-    angle_human=calc_angle_fromtraj(human.linear.x,human.angular.z,config)
-    # print(angle_human)
-
-    # print(human.angular.z,angle_human)
-
-    # if human.angular.z == 0:
-    #     human_r=float("inf")
-    # else:
-    #     human_r=human.linear.x/human.angular.z
-    # if (human_r< config.v_reso/config.max_yawrate) and human.angular.z>0:
-    #     human_r=config.v_reso/config.max_yawrate-0.01
-    # if (human_r> -config.v_reso/config.max_yawrate) and human.angular.z<0:
-    #     human_r=-config.v_reso/config.max_yawrate+0.01
-    # if human.linear.x==0:
-    #     if human.angular.z>0:
-    #         human_r=config.v_reso/config.max_yawrate-0.01
-    #     if human.angular.z<0:
-    #         human_r=-config.v_reso/config.max_yawrate+0.01
-    # 取正符号
+    xh,yh=calc_angle_fromtraj(human.linear.x,human.angular.z,config)
 
 
-global marker
+
+
 marker =  Marker()
 marker.header.frame_id = "odom"
 marker.type = marker.LINE_STRIP
@@ -515,6 +513,32 @@ marker.pose.position.x = 0.0
 marker.pose.position.y = 0.0
 marker.pose.position.z = 0.0
 
+h_marker =  Marker()
+h_marker.header.frame_id = "odom"
+h_marker.type = h_marker.LINE_STRIP
+h_marker.action = h_marker.ADD
+    # marker scale
+h_marker.scale.x = 0.1
+h_marker.scale.y = 0.1
+h_marker.scale.z = 0.1
+
+    # marker color #green
+h_marker.color.a = 1.0
+h_marker.color.r = 0.0
+h_marker.color.g = 0.0
+h_marker.color.b = 1.0
+
+    # marker orientaiton
+h_marker.pose.orientation.x = 0.0
+h_marker.pose.orientation.y = 0.0
+h_marker.pose.orientation.z = 0.0
+h_marker.pose.orientation.w = 1.0
+
+    # marker position  ###no influence in line
+h_marker.pose.position.x = 0.0
+h_marker.pose.position.y = 0.0
+h_marker.pose.position.z = 0.0
+
 def line(num):
     # marker line points
     marker.points = []
@@ -525,6 +549,17 @@ def line(num):
         exec(f"line_point{i}.y = list_y[{i}]")
         exec(f"line_point{i}.z = 0.0")
         exec(f"marker.points.append(line_point{i})")
+
+def h_line(num):
+    # marker line points
+    h_marker.points = []
+
+    for i in range(num):
+        exec(f"line_point{i} = Point()") 
+        exec(f"line_point{i}.x = list_x_human[{i}]")
+        exec(f"line_point{i}.y = list_y_human[{i}]")
+        exec(f"line_point{i}.z = 0.0")
+        exec(f"h_marker.points.append(line_point{i})")
 
 class RandomNumberGenerator:
     def __init__(self):
@@ -637,6 +672,7 @@ def main():
     config = Config()
     # position of obstacles
     obs = getObstacles()
+    # if inputs=="0":
     counter = StringMessageCounter()
 
     # model_name = "turtlebot3_burger"
@@ -663,6 +699,7 @@ def main():
     x_value_pub = rospy.Publisher('/min_d', Float32, queue_size = 1)
     # sub_obs = rospy.Subscriber("/gazebo/base_collision",Contact,StringMessageCounter.callbackobs,queue_size=10)
     pub_line = rospy.Publisher('~line_list', Marker, queue_size=10)
+    pub_line_human = rospy.Publisher('~line_list_human', Marker, queue_size=10)
     marker_pub = rospy.Publisher('visualization_marker', Marker, queue_size=10)
     
     speed = Twist()
@@ -691,13 +728,15 @@ def main():
             speed.angular.z = x[4]
             line(line_num)
             pub_line.publish(marker)
+            h_line(line_num_human)
+            pub_line_human.publish(h_marker)
         
         else:
             # if 0 then do directly
             speed.linear.x = human.linear.x
             speed.angular.z = human.angular.z
-            if speed.linear.x==0.0:
-                speed.angular.z=0.0
+            # if speed.linear.x==0.0:
+            #     speed.angular.z=0.0
 
         marker_pub.publish(markers)
         pub.publish(speed)

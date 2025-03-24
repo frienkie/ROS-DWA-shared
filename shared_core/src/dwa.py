@@ -268,7 +268,7 @@ def calc_final_input(x, u, dw, config, ob):
             w = np.round(w, 2)
             if (v==0.0 and w!=0.0):
                 continue
-            
+
             traj = calc_trajectory(xinit, v, w, config)
             
             # calc costs with weighted gains
@@ -293,7 +293,7 @@ def calc_final_input(x, u, dw, config, ob):
     #                 list_x.append(element[0])
     #                 list_y.append(element[1])
     #                 line_num=len(list_x)
-    # print(max_u[0],max_u[1])
+    #print(max_u[0],max_u[1])
     show_trajectory(xinit, max_u[0], max_u[1], config)
     
     return max_u
@@ -579,7 +579,9 @@ def main():
     config = Config()
     # position of obstacles
     obs = Obstacles()
-    counter = StringMessageCounter()
+
+    if inputkey==0:
+        counter = StringMessageCounter()
 
     # model_name = "turtlebot3_burger"
     model_name = "turtlebot3"

@@ -76,8 +76,9 @@ def poisson_disk_sampling(width, height, r1, r2, k=30, num_samples=80):
     active_list = []
     
     x0, y0 = random.uniform(0, width), random.uniform(0, height)
+    #x0, y0 = -3.6,3.6
     # initial_class = random.choice(['A', 'B'])
-    initial_class = 'A'
+    initial_class = 'A'  ###########初始种类
     if initial_class == 'A':
         samples_A.append((x0, y0))
         grid_A[int(x0 / cell_size)][int(y0 / cell_size)] = (x0, y0)
@@ -102,13 +103,13 @@ def poisson_disk_sampling(width, height, r1, r2, k=30, num_samples=80):
         else:
             r, check_grid, other_grid = r2, grid_B, grid_A
         
-        for i in range(max(0, grid_x - 1), min(grid_width, grid_x + 2)):
-            for j in range(max(0, grid_y - 1), min(grid_height, grid_y + 2)):
+        for i in range(max(0, grid_x - 2), min(grid_width, grid_x + 3)):
+            for j in range(max(0, grid_y - 2), min(grid_height, grid_y + 3)):
                 neighbor = check_grid[i][j]
                 if neighbor and np.linalg.norm(np.array((x, y)) - np.array(neighbor)) < r:
                     return False
                 neighbor = other_grid[i][j]
-                if neighbor and np.linalg.norm(np.array((x, y)) - np.array(neighbor)) < max(r1, r2):
+                if neighbor and np.linalg.norm(np.array((x, y)) - np.array(neighbor)) < min(r1, r2):
                     return False
         return True
     
@@ -118,8 +119,8 @@ def poisson_disk_sampling(width, height, r1, r2, k=30, num_samples=80):
         found = False
 
         for _ in range(k):
-            category = 'A' if random.random() < 1.2 else 'B'
-            nx, ny = random_point_around(x, y, r1 if category == 'A' else r2, 2 * (r1 if category == 'A' else r2))
+            category = 'A' if random.random() <= 1.2 else 'B'
+            nx, ny = random_point_around(x, y, r1 if category == 'A' else r2, 2.0 * (r1 if category == 'A' else r2))
             
             if is_valid_point(nx, ny, category):
                 if category == 'A':
@@ -156,8 +157,8 @@ if __name__ == "__main__":
     rospy.wait_for_service('/gazebo/spawn_sdf_model')
     spawn_model = rospy.ServiceProxy('/gazebo/spawn_sdf_model', SpawnModel)
     
-    min_distance_A = 0.8
-    min_distance_B = 1.6
+    min_distance_A = 0.47
+    min_distance_B = 1.0#0.41
     num_boxes = 200
     width, height = 3.82, 9.2
     start_x, start_y = -5.6, -1.4

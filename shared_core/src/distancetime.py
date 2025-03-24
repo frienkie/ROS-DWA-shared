@@ -149,8 +149,10 @@ class StringMessageCounter:
         if self.jyotai==1:
             self.feedback=JoyFeedbackArray(array=[self.vibra])
             self.vibration.publish(self.feedback)
-            time.sleep(1.2)
+            time.sleep(1.5)
             self.jyotai=0
+            self.feedback=JoyFeedbackArray(array=[self.novibra])
+            self.vibration.publish(self.feedback)
         else:
             self.feedback=JoyFeedbackArray(array=[self.novibra])
             self.vibration.publish(self.feedback)
