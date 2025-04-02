@@ -57,7 +57,7 @@ def callback(msg):
         scan = list(msg.ranges)
         
         # Get a list of rays in specified range and their indexes 
-        range_scan, index = range_filter(scan, min = msg.range_min, max = 1.2)
+        range_scan, index = range_filter(scan, min = msg.range_min, max =msg.range_max )
         not_none = []
 
         # Get not none values 

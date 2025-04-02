@@ -16,7 +16,6 @@ from geometry_msgs.msg import Twist, Point
 
 
 markers = Marker()
-yici = 1
 def goal_sphere(config):
     
     global markers
@@ -38,9 +37,9 @@ def goal_sphere(config):
     markers.pose.orientation.z = 0.0
     markers.pose.orientation.w = 1.0
 
-    markers.scale.x = config.goal_radius  # 球体在 x 方向的大小
-    markers.scale.y = config.goal_radius  # 球体在 y 方向的大小
-    markers.scale.z = config.goal_radius  # 球体在 z 方向的大小
+    markers.scale.x = config.robot_radius*4  # 球体在 x 方向的大小
+    markers.scale.y = config.robot_radius*4  # 球体在 y 方向的大小
+    markers.scale.z = config.robot_radius*4  # 球体在 z 方向的大小
 
     # 设置颜色
     markers.color.r = 0.0  # 红色分量
@@ -66,7 +65,7 @@ def odom_callback(config):
     # print("当前prev: %.2f , %.2f", config.prev_x,config.prev_y)
     # print("当前总里程: %.2f 米", config.distance)
 
-def save(time,distance,count,n,m,chizu):# n is direct switch,m is para
+def save(time,distance,count_time,n,m,chizu):# n is direct switch,m is para
     file_name = "/home/frienkie/result/data.xlsx"
 
     # 检查文件是否存在
@@ -83,9 +82,12 @@ def save(time,distance,count,n,m,chizu):# n is direct switch,m is para
     # 查找第一列中最后一行的行号
 
     # 需要写入的浮点数据（这里替换为你的数据）
-    data1 = time  # 示例浮点数
+    data1 = get_time(time)  # 示例浮点数
     data2 = distance
-    data3 = count
+    if count_time==0:
+        data3=0
+    else:
+        data3 = count_time-time
     # 格式化浮点数，保留两位小数
     formatted_data1 = round(data1, 2)
     formatted_data2 = round(data2, 2)
@@ -123,6 +125,8 @@ class StringMessageCounter:
         self.inactive_threshold = 2.0  # 秒
         self.last_message_time = None
         self.send_count = 0
+        self.count_time = 0
+        self.first_time=True
         self.vibra=JoyFeedback()
         self.vibra.type=1
         self.vibra.id=1
@@ -140,8 +144,11 @@ class StringMessageCounter:
         # 判断是否是新的一次发送
         if self.last_message_time is None or \
            (current_time - self.last_message_time) > self.inactive_threshold:
+            if self.first_time:
+                self.count_time=current_time
+                self.first_time=False
             self.send_count += 1
-            print(f"New message batch detected. Total count: {self.send_count}")
+            print(f"New message batch detected. TIME IS {current_time}.Total count: {self.send_count}")
             self.jyotai=1
         # 更新最后消息接收时间
         self.last_message_time = current_time

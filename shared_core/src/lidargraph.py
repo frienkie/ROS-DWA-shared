@@ -146,7 +146,9 @@ class getObstacles():
         deg = len(msg.ranges)   # Number of degrees - varies in Sim vs real world
         # print("Laser degree length {}".format(deg))
         self.obst = set()   # reset the obstacle set to only keep visible objects
-
+        self.minx=min(msg.ranges)
+        if self.minx>3.5:
+            self.minx=3.5
         for i in range(len(msg.ranges)):
             if msg.ranges[i]>config.maxdect:
                 continue
