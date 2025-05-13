@@ -12,17 +12,27 @@
 # Collision Avoidance (1997).
 import rospy
 import math
-import numpy as np
 from geometry_msgs.msg import Twist, Point
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
-from std_msgs.msg import Float64
+from std_msgs.msg import Float32
 from visualization_msgs.msg import Marker
 from distancetime import *
+import json
 import signal
 import sys
+from pynput import keyboard  # for keyboard input detect
+import simpleaudio as sa
+import threading
+import argparse
+parser = argparse.ArgumentParser(description="设置参数")
 
+# 添加参数
+parser.add_argument("--param", type=int, required=True, help="参数值")
+
+# 解析参数
+args = parser.parse_args()
 
 class Config():
     # simulation parameters
@@ -35,27 +45,35 @@ class Config():
         self.min_speed = 0.0  # [m/s]
         self.max_yawrate = 0.6  # [rad/s]
 
-        self.max_accel = 1.0  # [m/ss]
-        self.max_dyawrate = 2.8  # [rad/ss]
+        self.max_accel = 2.5  # [m/ss]
+        self.max_dyawrate = 3.2  # [rad/ss]
         ##################################################33
         self.v_reso = 0.04  # [m/s]
         self.yawrate_reso = 0.04  # [rad/s]
         #######################################################
-        self.dt = 0.5  # [s]
-        self.predict_time = 3.0  # [s]
+        self.dt = 0.4  # [s]
+        self.predict_time = 2.4  # [s]
         self.showpredict_time = 3.0  # [s]
         self.showdt = 1.0
+        self.goal_radius=0.4
         #########################################
         # self.speed_cost_gain = 1.5 
         # self.obs_cost_gain = 1.0
         # self.to_human_cost_gain =0.5
-        self.to_human_cost_gain = 1.0 #lower = detour
-        self.speed_cost_gain = 1.5 #lower = faster
-        self.obs_cost_gain = 0.5 #lower z= fearless
+        if args.param == 1:
+            self.to_human_cost_gain = 1.0 #lower = detour
+            self.speed_cost_gain = 2.0 #lower = faster
+            self.obs_cost_gain = 1.0 #lower z= fearless
+        if args.param == 2:
+            self.to_human_cost_gain = 1.0 #lower = detour
+            self.speed_cost_gain = 1.0 #lower = faster
+            self.obs_cost_gain = 2.0 #lower z= fearless
+        if args.param == 3:
+            self.to_human_cost_gain = 2.0 #lower = detour
+            self.speed_cost_gain = 1.0 #lower = faster
+            self.obs_cost_gain = 1.0 #lower z= fearless
         #############################
-        self.robot_radius = 0.11  # [m]
-        self.distance_min = 0.11
-        self.distance_max = 3.5
+        self.robot_radius = 0.12  # [m]
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
@@ -64,7 +82,13 @@ class Config():
         self.prev_x = 0.0
         self.prev_y = 0.0
         self.distance = 0.0
-        # self.xy = set()
+        self.first_time=True
+        self.mindect=0.12
+        self.maxdect=1.2
+        self.prev_x0= 0.0
+        self.prev_y0= 0.0
+        self.distance0=0.0
+        self.xy = set()
         self.r = rospy.Rate(20)
 
     # Callback for Odometry
@@ -77,7 +101,14 @@ class Config():
         (roll,pitch,theta) = \
             euler_from_quaternion ([rot_q.x,rot_q.y,rot_q.z,rot_q.w])
         self.th = theta
-        # self.xy.add((self.x,self.y))
+        self.xy.add((self.x,self.y))
+        if self.first_time:  # 只在第一次执行
+            self.prev_x = self.x
+            self.prev_y = self.y
+            self.prev_x0 =self.x
+            self.prev_y0 =self.y
+            self.first_time = False  # 之后不会再执行
+        self.distance0=math.sqrt((self.x - self.prev_x0)**2 + (self.y - self.prev_y0)**2)
         odom_callback(self)
 
 
@@ -91,26 +122,27 @@ class Obstacles():
     def __init__(self):
         # Set of coordinates of obstacles in view
         self.obst = set()
+        self.obs1 = set()
+        self.minx = 3.5
+        self.deltx = 0.15
+        self.index = 0
+        self.pattern = 0
+        # self.obstacle_list = []  # 先用列表存储，再一次性加入 set
 
-    def assignObs1(self, msg, config):
+
+    def assignObs(self, msg, config):
 
         deg = len(msg.ranges)   # Number of degrees - varies in Sim vs real world
         # print("Laser degree length {}".format(deg))
         self.obst = set()   # reset the obstacle set to only keep visible objects
-        scan_range = []
+
         for i in range(len(msg.ranges)):
-            # if msg.ranges[i] == float('Inf'):
-            if msg.ranges[i]>config.distance_max or msg.ranges[i] == float('Inf'):
+            if msg.ranges[i]>config.maxdect:
                 continue
-                # scan_range.append(3.5)
-
-            elif msg.ranges[i]<config.distance_min:
-                continue
-
             elif np.isnan(msg.ranges[i]):
-                # scan_range.append(0)
-                distance = config.distance_min
-
+                distance = config.mindect
+            elif msg.ranges[i]<config.mindect:
+                continue
             else:
                 distance = msg.ranges[i]
 
@@ -130,15 +162,38 @@ class Obstacles():
 
             # all obastacle data
             self.obst.add((obsX,obsY))
-        # with open('/home/frienkie/cood/test', 'r') as f:
-        #     self.existing_coordinates = set(map(tuple, json.load(f)))
+        if config.distance0>self.deltx:
+            if self.index == 0:
+                self.obs1 = self.obst.copy()
+            # elif self.index == 1:
+            #     self.obs2 = self.obst.copy()
+            self.index = (self.index + 1) % 1
+            config.prev_x0=config.x
+            config.prev_y0=config.y
+        if self.pattern==1:
+            self.obst= self.obs1 | self.obst
+
+    def assignObs1(self, msg, config):
+        self.minx=3.5
+        for i in range(len(msg.ranges)):
+            # if msg.ranges[i] == float('Inf'):
+            if msg.ranges[i]>config.maxdect or msg.ranges[i] == float('Inf'):
+                distance=config.maxdect
+                # scan_range.append(3.5)
+
+            elif msg.ranges[i]<config.mindect:
+                distance=config.mindect
+
+            elif np.isnan(msg.ranges[i]):
+                # scan_range.append(0)
+                distance = 0.12
+
+            else:
+                distance = msg.ranges[i]
+            if self.minx>distance:
+                self.minx=distance
+
         
-        # self.existing_coordinates = self.existing_coordinates.union(self.obst)
-        # with open('/home/frienkie/cood/test', 'w') as f:
-        #     json.dump(list(self.existing_coordinates), f)
-        # print (self.obst)
-
-
 # Model to determine the expected position of the robot after moving along trajectory
 def motion(x, u, dt):
     # motion model
@@ -146,8 +201,6 @@ def motion(x, u, dt):
     x[0] += u[0] * math.cos(x[2]) * dt
     x[1] += u[0] * math.sin(x[2]) * dt
     x[2] += u[1] * dt
-    x[3] = u[0]
-    x[4] = u[1]
 
     return x
 
@@ -172,6 +225,10 @@ def calc_dynamic_window(x, config):
 
 list_x=[]
 list_y=[]
+line_num=0
+list_x_human=[]
+list_y_human=[]
+line_num_human=0
 
 
 def show_trajectory(xinit, v, y, config):
@@ -188,7 +245,21 @@ def show_trajectory(xinit, v, y, config):
         list_y.append(x[1])
         time += config.dt # next sample
     line_num=len(list_x)
-    
+
+def show_trajectory_human(xinit, v, y, config):
+    global line_num_human
+    x = np.array(xinit)
+    time = 0
+    list_x_human.clear()
+    list_y_human.clear()
+
+    while time <= config.showpredict_time:
+        # store each motion model along a trajectory
+        x = motion(x, [v, y], config.dt)
+        list_x_human.append(x[0])
+        list_y_human.append(x[1])
+        time += config.dt # next sample
+    line_num_human=len(list_x_human)
 
 angle_robot=0.0
 # Calculate a trajectory sampled across a prediction time
@@ -207,41 +278,37 @@ def calc_trajectory(xinit, v, y, config):
 
 def calc_angle_fromtraj(v, y, config):
 
-    x = np.array([0,0,0,v,y])
-    time = 0.0
-    angle =0.0
-
-    while time <= 1.0:
+    x = np.array([config.x,config.y,config.th,v,y])
+    time = 0
+    while time <= config.predict_time:
         # store each motion model along a trajectory
         x = motion(x, [v, y], config.dt)
-        time += config.showdt # next sample
-    if abs(v)<=0.0001:
-        angle=y*1.0
-        # print(angle)
-    else:
-        angle=math.atan2(x[1], x[0])
-    #print(angle)
-    return angle
+        time += config.dt # next sample
+
+    return x[0],x[1]
 
 
 ################################################################################
 
 
-def calc_final_input(x, u, dw, config, ob):
 
+# Calculate trajectory, costings, and return velocities to apply to robot
+def calc_final_input(x, u, dw, config, ob):
+    # global list_x,list_y,line_num
     xinit = x[:]######
     max_cost = 0.0
     max_u = u
-    max_u[0] = 0.0 #全部为死路
+    max_u[0] = 0.0 #no way can be chosen
     max_u[1] = human.angular.z
     global angle_robot
     # evaluate all trajectory with sampled input in dynamic window
-    for v in np.arange(config.min_speed, config.max_speed+config.v_reso, config.v_reso):
-        for w in np.arange(-config.max_yawrate, config.max_yawrate+config.yawrate_reso, config.yawrate_reso):
+    for v in np.arange(dw[0], dw[1]+config.v_reso, config.v_reso):
+        for w in np.arange(dw[2], dw[3]+config.yawrate_reso, config.yawrate_reso):
+            w = np.round(w, 2)
+
             traj = calc_trajectory(xinit, v, w, config)
-            
-            # calc costs with weighted gains
-            to_human_cost = (1-calc_to_human_cost(v,w,config,4)) * config.to_human_cost_gain
+
+            to_human_cost = (1-calc_to_human_cost(v,w,config,traj,4)) * config.to_human_cost_gain
 
             speed_cost = config.speed_cost_gain *(1-abs(human.linear.x - v)/(config.max_speed-config.min_speed))
 
@@ -251,15 +318,16 @@ def calc_final_input(x, u, dw, config, ob):
                 continue
 
             final_cost = to_human_cost + speed_cost + ob_cost
+            
 
             # search minimum trajectory     ##最大代价
             if max_cost <= final_cost:
                 max_cost = final_cost
                 max_u = [v, w]
-
-    # print(max_u[0],max_u[1])
+    # if max_u[0]==0.0:
+    #     max_u[1]=human.angular.z
     show_trajectory(xinit, max_u[0], max_u[1], config)
-    
+    show_trajectory_human(xinit, human.linear.x, human.angular.z, config)
     return max_u
 #################################################################################
 
@@ -268,7 +336,7 @@ def calc_final_input(x, u, dw, config, ob):
 # Calculate obstacle cost inf: collision, 0:free
 def calc_obstacle_cost(traj, ob, config):
     skip_n = 1
-    minr = config.distance_max
+    minr = config.maxdect
     
     # Loop through every obstacle in set and calc Pythagorean distance
     # Use robot radius to determine if collision
@@ -279,7 +347,7 @@ def calc_obstacle_cost(traj, ob, config):
             dx = traj[ii, 0] - ox    ##轨迹
             dy = traj[ii, 1] - oy
 
-            r = math.sqrt(math.pow(dx,2) + math.pow(dy,2))  ##距离 dx**2 + dy**2<0 r=nan
+            r = math.sqrt(dx**2 + dy**2)  ##距离
 
             if r <= config.robot_radius:
                 return float("-Inf")  # collision
@@ -287,42 +355,20 @@ def calc_obstacle_cost(traj, ob, config):
             if minr >= r:
                 minr = r
 
-    return (minr-config.distance_min)/(config.distance_max-config.distance_min)
+
+    return (minr-config.mindect)/(config.maxdect-config.mindect)
 
 ############################################################################333
-def calc_to_human_cost( v, w,config,n):
-    if n==1:
-        if w==0:
-            robot_r=float("inf")
-        else:
-            robot_r=v/w
-        
-        #cost =abs(np.tanh(robot_r/10)-np.tanh(human_r/10))
-
-        if (robot_r< config.v_reso/config.max_yawrate)and w>0:
-            robot_r=config.v_reso/config.max_yawrate-0.01
-        if (robot_r> -config.v_reso/config.max_yawrate)and w<0:
-            robot_r=-config.v_reso/config.max_yawrate+0.01
-        if v==0:
-            if w>0:
-                robot_r=config.v_reso/config.max_yawrate-0.01
-            if w<0:
-                robot_r=-config.v_reso/config.max_yawrate+0.01
-        
-        cost = abs(1/human_r - 1/robot_r)/(2*(1/(config.v_reso/config.max_yawrate-0.01)))
-    elif n==3:
-        angle_robot=calc_angle_fromtraj(v, w, config)
-        cost=abs(angle_human-angle_robot)/math.pi
-    elif n==4:
+def calc_to_human_cost( v, w,config,traj,n):
+    global human_angle
+    # elif n==3:# final point distance method
+    #     xr,yr=traj[-1,0],traj[-1,1]
+    #     cost=math.sqrt((xh-xr)**2 + (yh-yr)**2)/(2*(config.max_speed-config.min_speed)*config.showpredict_time)
+    if n==4:# w minus directly
         robot_angle=w
         cost = abs(human_angle-robot_angle)/(config.max_yawrate*2)
-    else:
-        robot_angle=cal_angle(v,w)
-        cost = abs(human_angle-robot_angle)/math.pi
-    # if (np.isinf(robot_r)&np.isinf(human_r)):
-    #     cost=0
-    # else:
-    #     cost =abs(robot_r-human_r)
+    elif n==5:
+        cost=abs(math.atan2(w,v)-human_r)/math.pi
 
     return cost
 ##################################################################################
@@ -340,68 +386,39 @@ def dwa_control(x, u, config, ob):
 def atGoal(config):
     # check at goal
     if math.sqrt((config.x - config.goalX)**2 + (config.y - config.goalY)**2) \
-        <= config.robot_radius*4:
+        <= config.goal_radius:
         return 1
     return 0
 
 
-def cal_angle(v,w):
-    if v==0:
-        angle=w+math.pi/2
-    else:
-        y=v*math.cos(w)
-        x=v*math.sin(w)
-        angle = math.atan2(y, x)
-    return angle
-
-human_angle=math.pi/2
-angle_human=0
+human_angle=0
 yici=1
-inputkey=0
 
 def share1(vel_msg,config):# human command get 获取人类指令
     global human
     global human_r
     global inputkey
     global human_angle
-    global angle_human
-
-    
+    global xh,yh
 
     human.linear.x=vel_msg.linear.x
-
-    if inputkey==1:
-        if human.linear.x<0:
-            human.linear.x=0.0
     human.angular.z=vel_msg.angular.z
+    
+    # if human.linear.x<-0.08:
+    #     human.linear.x=-0.08
 
+    if human.linear.x<0.0:
+        human.linear.x=0.0
     human_angle=human.angular.z
-
-    if human.linear.x<=0.01 and human.linear.x>=-0.01:
+    if human.linear.x<=0.001 and human.linear.x>=-0.001:
         human.linear.x = 0.0
     # human_angle=cal_angle(human.linear.x,human.angular.z)
-
-    # angle_human=calc_angle_fromtraj(human.linear.x,human.angular.z,config)
-
-    # print(human.angular.z,angle_human)
-
-    # if human.angular.z == 0:
-    #     human_r=float("inf")
-    # else:
-    #     human_r=human.linear.x/human.angular.z
-    # if (human_r< config.v_reso/config.max_yawrate) and human.angular.z>0:
-    #     human_r=config.v_reso/config.max_yawrate-0.01
-    # if (human_r> -config.v_reso/config.max_yawrate) and human.angular.z<0:
-    #     human_r=-config.v_reso/config.max_yawrate+0.01
-    # if human.linear.x==0:
-    #     if human.angular.z>0:
-    #         human_r=config.v_reso/config.max_yawrate-0.01
-    #     if human.angular.z<0:
-    #         human_r=-config.v_reso/config.max_yawrate+0.01
-    # 取正符号
+    human_r=math.atan2(human.angular.z,human.linear.x)
 
 
-global marker
+
+
+
 marker =  Marker()
 marker.header.frame_id = "odom"
 marker.type = marker.LINE_STRIP
@@ -428,6 +445,32 @@ marker.pose.position.x = 0.0
 marker.pose.position.y = 0.0
 marker.pose.position.z = 0.0
 
+h_marker =  Marker()
+h_marker.header.frame_id = "odom"
+h_marker.type = h_marker.LINE_STRIP
+h_marker.action = h_marker.ADD
+    # marker scale
+h_marker.scale.x = 0.1
+h_marker.scale.y = 0.1
+h_marker.scale.z = 0.1
+
+    # marker color #green
+h_marker.color.a = 1.0
+h_marker.color.r = 0.0
+h_marker.color.g = 0.0
+h_marker.color.b = 1.0
+
+    # marker orientaiton
+h_marker.pose.orientation.x = 0.0
+h_marker.pose.orientation.y = 0.0
+h_marker.pose.orientation.z = 0.0
+h_marker.pose.orientation.w = 1.0
+
+    # marker position  ###no influence in line
+h_marker.pose.position.x = 0.0
+h_marker.pose.position.y = 0.0
+h_marker.pose.position.z = 0.0
+
 def line(num):
     # marker line points
     marker.points = []
@@ -438,6 +481,17 @@ def line(num):
         exec(f"line_point{i}.y = list_y[{i}]")
         exec(f"line_point{i}.z = 0.0")
         exec(f"marker.points.append(line_point{i})")
+
+def h_line(num):
+    # marker line points
+    h_marker.points = []
+
+    for i in range(num):
+        exec(f"line_point{i} = Point()") 
+        exec(f"line_point{i}.x = list_x_human[{i}]")
+        exec(f"line_point{i}.y = list_y_human[{i}]")
+        exec(f"line_point{i}.z = 0.0")
+        exec(f"h_marker.points.append(line_point{i})")
 
 class RandomNumberGenerator:
     def __init__(self):
@@ -482,8 +536,8 @@ class RandomNumberGenerator:
 def change_goal(config,n):
     global yici
     if n==0:
-        config.goalX=-3.6
-        config.goalY=-3.0
+        config.goalX=-4.0
+        config.goalY=10.0
     if n==1:
         config.goalX=-3.8
         config.goalY=8.5
@@ -504,7 +558,8 @@ def change_goal(config,n):
 
 human=Twist()
 human_r=float("inf")
-ob_costly=Float64()
+inputkey=0
+write=0
 
 def signal_handler(signal, frame):
     print("\nCtrl + C  is pressed,exit sys")
@@ -513,8 +568,28 @@ def signal_handler(signal, frame):
 # 绑定 SIGINT 信号（Ctrl + C）到 signal_handler
 signal.signal(signal.SIGINT, signal_handler)
 
+def listen_key():
+    global write
+
+    def on_press(key):
+        global write
+        try:
+            if key.char == 'y':  # 检测键盘输入 y
+                write = 1
+                print("Key 'y' detected. Variable 'write' set to 1.")
+        except AttributeError:
+            pass
+
+    # 启动监听器
+    with keyboard.Listener(on_press=on_press) as listener:
+        listener.join()
+
 def main():
+    global yici
+    global write
     print(__file__ + " start!!")
+    print("which map is used now?")
+    chizu=input()
     print("human is 0,share is 1")
     inputs=input()
     if inputs=="0":
@@ -524,23 +599,31 @@ def main():
     else:
             rospy.loginfo("input error,run as human")
             inputkey = 0
+
     # robot specification
-    rand=RandomNumberGenerator()
+    # rand=RandomNumberGenerator()
     config = Config()
     # position of obstacles
     obs = Obstacles()
+    # if chizu=="4":
+    #     config.robot_radius=0.106
+    #     obs.pattern=1
+    #     print("changed OK")
+
+    threading.Thread(target=listen_key, daemon=True).start()
 
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
-    subLaser = rospy.Subscriber("/scan", LaserScan, obs.assignObs1, config)
-
+    subLaser1 = rospy.Subscriber("scan", LaserScan, obs.assignObs1, config)
+    subLaser = rospy.Subscriber("/filtered_scan", LaserScan, obs.assignObs, config)
 
     sub_hum = rospy.Subscriber("/cmd_vel_human",Twist,share1,config,queue_size=1)
 
     pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
 
-    # human_value_pub = rospy.Publisher('cost', Float64, queue_size = 1)
+    x_value_pub = rospy.Publisher('/min_d', Float32, queue_size = 1)
     # sub_obs = rospy.Subscriber("/gazebo/base_collision",Contact,StringMessageCounter.callbackobs,queue_size=10)
     pub_line = rospy.Publisher('~line_list', Marker, queue_size=10)
+    pub_line_human = rospy.Publisher('~line_list_human', Marker, queue_size=10)
     marker_pub = rospy.Publisher('visualization_marker', Marker, queue_size=10)
     
     speed = Twist()
@@ -551,10 +634,12 @@ def main():
     # initial linear and angular velocities
     u = np.array([0.0, 0.0])
 
+    file_value=start_rosbag()
+    print("You can press y to stop and save rosbag when you need.")
     start_time = rospy.get_time()
     # runs until terminated externally
     while not rospy.is_shutdown():
-        global yici
+
         if (inputkey== 1):
             u = dwa_control(x, u, config, obs.obst)
             x[0] = config.x
@@ -562,36 +647,38 @@ def main():
             x[2] = config.th
             x[3] = u[0]
             x[4] = u[1]
-
             speed.linear.x = x[3]
             speed.angular.z = x[4]
             line(line_num)
             pub_line.publish(marker)
-            # marker_pub.publish(markers)
-
+            h_line(line_num_human)
+            pub_line_human.publish(h_marker)
+        
         else:
             # if 0 then do directly
             speed.linear.x = human.linear.x
             speed.angular.z = human.angular.z
-        # if yici>0:
-        #     marker_pub.publish(markers)
+        if yici>0:
+            marker_pub.publish(markers)
         pub.publish(speed)
-        # if atGoal(config)==1:
+        x_value_pub.publish(obs.minx)
 
-        #     if yici>0:
-        #         print("YOU have arrive the goal point")
-        #         save(get_time(start_time),config.distance,counter.send_count,inputkey,args.param)
-        #         print("distance in this time: %.2f m" % config.distance)
-        #         print("hit time: %d " % counter.send_count)
-        #         with open('/home/frienkie/cood/test1', 'w') as f:
-        #             json.dump(list(config.xy), f)
-        #         # start_time = rospy.get_time()
-                
-        #     change_goal(config,rand.get_next())
-        #     goal_sphere(config)
+        if write==1:
+
+            if yici>0:
+                print("YOU have arrive the goal point")
+                print("distance in this time: %.2f m" % config.distance)
+                with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
+                    json.dump(list(config.xy), f)
+                stop_rosbag()
+                # change_goal(config,rand.get_next())
+                # goal_sphere(config)
+                play_celebration_sound()
+                yici=0
+            
         config.r.sleep()
 
 
 if __name__ == '__main__':
-    rospy.init_node('shared_dwa_remote')
+    rospy.init_node('shared_dwa')
     main()

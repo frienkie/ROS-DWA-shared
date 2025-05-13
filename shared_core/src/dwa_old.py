@@ -12,6 +12,7 @@
 # Collision Avoidance (1997).
 import rospy
 import math
+import numpy as np
 from geometry_msgs.msg import Twist, Point
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
@@ -23,16 +24,10 @@ import json
 import signal
 import sys
 from pynput import keyboard  # for keyboard input detect
-import simpleaudio as sa
 import threading
 import argparse
-parser = argparse.ArgumentParser(description="设置参数")
 
-# 添加参数
-parser.add_argument("--param", type=int, required=True, help="参数值")
 
-# 解析参数
-args = parser.parse_args()
 
 class Config():
     # simulation parameters
@@ -60,18 +55,10 @@ class Config():
         # self.speed_cost_gain = 1.5 
         # self.obs_cost_gain = 1.0
         # self.to_human_cost_gain =0.5
-        if args.param == 1:
-            self.to_human_cost_gain = 1.0 #lower = detour
-            self.speed_cost_gain = 2.0 #lower = faster
-            self.obs_cost_gain = 1.0 #lower z= fearless
-        if args.param == 2:
-            self.to_human_cost_gain = 1.0 #lower = detour
-            self.speed_cost_gain = 1.0 #lower = faster
-            self.obs_cost_gain = 2.0 #lower z= fearless
-        if args.param == 3:
-            self.to_human_cost_gain = 2.0 #lower = detour
-            self.speed_cost_gain = 1.0 #lower = faster
-            self.obs_cost_gain = 1.0 #lower z= fearless
+
+        self.to_human_cost_gain = 1.0 #lower = detour
+        self.speed_cost_gain = 1.0 #lower = faster
+
         #############################
         self.robot_radius = 0.12  # [m]
         self.x = 0.0
@@ -135,7 +122,6 @@ class Obstacles():
         deg = len(msg.ranges)   # Number of degrees - varies in Sim vs real world
         # print("Laser degree length {}".format(deg))
         self.obst = set()   # reset the obstacle set to only keep visible objects
-
         for i in range(len(msg.ranges)):
             if msg.ranges[i]>config.maxdect:
                 continue
@@ -172,8 +158,8 @@ class Obstacles():
         if self.pattern==1:
             self.obst= self.obs1 | self.obst
 
+
     def assignObs1(self, msg, config):
-        self.minx=3.5
         for i in range(len(msg.ranges)):
             # if msg.ranges[i] == float('Inf'):
             if msg.ranges[i]>config.maxdect or msg.ranges[i] == float('Inf'):
@@ -191,8 +177,6 @@ class Obstacles():
                 distance = msg.ranges[i]
             if self.minx>distance:
                 self.minx=distance
-
-        
 # Model to determine the expected position of the robot after moving along trajectory
 def motion(x, u, dt):
     # motion model
@@ -292,44 +276,82 @@ def calc_angle_fromtraj(v, y, config):
 
 
 # Calculate trajectory, costings, and return velocities to apply to robot
-def calc_final_input(x, u, dw, config, ob):
+def calc_inev(x, dw, config, ob):
     # global list_x,list_y,line_num
     xinit = x[:]######
-    max_cost = 0.0
-    max_u = u
-    max_u[0] = 0.0 #no way can be chosen
-    max_u[1] = human.angular.z
+    v_inev=dw[1]
+    w_inev_left=dw[3]
+    w_inev_right=dw[2]
+    n=0
+    m=0
+    flag=0
+    # evaluate all trajectory with sampled input in dynamic window
+    for v in np.arange(dw[0], dw[1]+config.v_reso, config.v_reso):
+        for w in np.arange(dw[2], dw[3]+config.yawrate_reso, config.yawrate_reso):
+            w = np.round(w, 2)
+            traj = calc_trajectory(xinit, v, w, config)
+
+            ob_cost = calc_obstacle_cost(traj, ob, config)
+            n+=1
+            if np.isinf(ob_cost):
+                m+=1
+                if v_inev>v:
+                    v_inev=v
+                    if w>=0:
+                        w_inev_left=w
+                        w_inev_right=dw[2]
+                        flag=1
+                    elif w<0:
+                        w_inev_left=dw[3]
+                        w_inev_right=w
+                        flag=-1
+    D=m/n
+    inev=[v_inev, w_inev_left, w_inev_right,D,flag]
+    return inev
+#################################################################################
+def calc_final_input(x, u, dw, config,inev):
+    # global list_x,list_y,line_num
+    xinit = x[:]######copy x
+    min_cost = 1.0
+    min_u = u
+    min_u[0] = 0.0 #no way can be chosen
+    min_u[1] = human.angular.z
     global angle_robot
     # evaluate all trajectory with sampled input in dynamic window
     for v in np.arange(dw[0], dw[1]+config.v_reso, config.v_reso):
         for w in np.arange(dw[2], dw[3]+config.yawrate_reso, config.yawrate_reso):
             w = np.round(w, 2)
-
-            traj = calc_trajectory(xinit, v, w, config)
-
-            to_human_cost = (1-calc_to_human_cost(v,w,config,traj,4)) * config.to_human_cost_gain
-
-            speed_cost = config.speed_cost_gain *(1-abs(human.linear.x - v)/(config.max_speed-config.min_speed))
-
-            ob_cost = calc_obstacle_cost(traj, ob, config) * config.obs_cost_gain
-
-            if np.isinf(ob_cost):
+            if v==0 and w!=0 and w!=dw[2]and w!=dw[3]:
                 continue
-
-            final_cost = to_human_cost + speed_cost + ob_cost
+            if v==0 and w==0:
+                d_v=1
+            elif v>=inev[0] or w>=inev[1] or w<=inev[2] or inev[1]==0 or inev[0]==0:
+                d_v=0
+            else:
+                if inev[4]==0:
+                    d_v=1
+                elif inev[4]==1:
+                    d_v=min((inev[0]-v)/inev[0],(inev[1]-w)/inev[1])
+                elif inev[4]==-1:
+                    d_v=min((inev[0]-v)/inev[0],abs((inev[2]-w)/inev[2]))
             
+            # calc costs with weighted gains
+            to_human_cost = calc_to_human_cost(v,w,config,5) * config.to_human_cost_gain
+
+            speed_cost = (1-inev[3])*(abs(human.linear.x - v)/(config.max_speed-config.min_speed))+inev[3]*abs(v)/(config.max_speed-config.min_speed)
+
+            speed_cost=speed_cost*config.speed_cost_gain
+
+            final_cost = (1-d_v)+d_v*(to_human_cost+speed_cost)
 
             # search minimum trajectory     ##最大代价
-            if max_cost <= final_cost:
-                max_cost = final_cost
-                max_u = [v, w]
-    # if max_u[0]==0.0:
-    #     max_u[1]=human.angular.z
-    show_trajectory(xinit, max_u[0], max_u[1], config)
-    show_trajectory_human(xinit, human.linear.x, human.angular.z, config)
-    return max_u
-#################################################################################
+            if min_cost >= final_cost:
+                min_cost = final_cost
+                min_u = [v, w]
 
+    show_trajectory(xinit, min_u[0], min_u[1], config)
+    show_trajectory_human(xinit, human.linear.x, human.angular.z, config)
+    return min_u
 
 
 # Calculate obstacle cost inf: collision, 0:free
@@ -358,7 +380,7 @@ def calc_obstacle_cost(traj, ob, config):
     return (minr-config.mindect)/(config.maxdect-config.mindect)
 
 ############################################################################333
-def calc_to_human_cost( v, w,config,traj,n):
+def calc_to_human_cost( v, w,config,n):
     global human_angle
     global xr,yr,xh,yh
     if n==1:## previous radius cal method
@@ -380,15 +402,11 @@ def calc_to_human_cost( v, w,config,traj,n):
                 robot_r=-config.v_reso/config.max_yawrate+0.01
         
         cost = abs(1/human_r - 1/robot_r)/(2*(1/(config.v_reso/config.max_yawrate-0.01)))
-    elif n==3:# final point distance method
-        xr,yr=traj[-1,0],traj[-1,1]
-        cost=math.sqrt((xh-xr)**2 + (yh-yr)**2)/(2*(config.max_speed-config.min_speed)*config.showpredict_time)
     elif n==4:# w minus directly
         robot_angle=w
         cost = abs(human_angle-robot_angle)/(config.max_yawrate*2)
     elif n==5:
         cost=abs(math.atan2(w,v)-human_r)/math.pi
-
     return cost
 ##################################################################################
 
@@ -397,8 +415,8 @@ def dwa_control(x, u, config, ob):
     # Dynamic Window control
 
     dw = calc_dynamic_window(x, config)
-
-    u = calc_final_input(x, u, dw, config, ob)
+    inev=calc_inev(x, dw, config, ob)
+    u = calc_final_input(x, u, dw, config,inev)
 
     return u
 
@@ -431,14 +449,16 @@ def share1(vel_msg,config):# human command get 获取人类指令
     
 
     human.linear.x=vel_msg.linear.x
-    human.angular.z=vel_msg.angular.z
     
     # if human.linear.x<-0.08:
     #     human.linear.x=-0.08
 
     if human.linear.x<0.0:
         human.linear.x=0.0
+    human.angular.z=vel_msg.angular.z
+
     human_angle=human.angular.z
+
     if human.linear.x<=0.001 and human.linear.x>=-0.001:
         human.linear.x = 0.0
     # human_angle=cal_angle(human.linear.x,human.angular.z)
@@ -705,7 +725,7 @@ def main():
 
             if yici>0:
                 print("YOU have arrive the goal point")
-                save(start_time,config.distance,counter.count_time,inputkey,args.param,chizu)
+                save(start_time,config.distance,counter.count_time,inputkey,10,chizu)
                 print("distance in this time: %.2f m" % config.distance)
                 print("hit time: %d " % counter.send_count)
                 with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:

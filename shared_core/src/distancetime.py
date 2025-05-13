@@ -5,8 +5,11 @@ import math
 from visualization_msgs.msg import Marker
 from openpyxl import Workbook, load_workbook # type: ignore
 import os
+import simpleaudio as sa
+import threading
 from gazebo_model_collision_plugin.msg import Contact
 import random
+import numpy as np
 from gazebo_msgs.srv import SetModelState
 from gazebo_msgs.msg import ModelState
 from sensor_msgs.msg import JoyFeedbackArray,JoyFeedback
@@ -65,6 +68,30 @@ def odom_callback(config):
     # print("当前prev: %.2f , %.2f", config.prev_x,config.prev_y)
     # print("当前总里程: %.2f 米", config.distance)
 
+def play_celebration_sound():
+    """
+    播放一个到达终点的庆祝音效（异步，不阻塞主线程）
+    """
+    def _play():
+        notes = [
+            (660, 0.3),  # E5
+            (0,   0.1),  # pause
+            (880, 0.3),  # A5
+            (0,   0.1),
+            (660, 0.5),  # E5 (长音)
+        ]
+        sample_rate = 44100
+        for freq, dur in notes:
+            if freq == 0:
+                time.sleep(dur)
+                continue
+            t = np.linspace(0, dur, int(sample_rate * dur), False)
+            wave = np.sin(freq * 2 * np.pi * t)
+            audio = (wave * 32767).astype(np.int16)
+            sa.play_buffer(audio, 1, 2, sample_rate).wait_done()
+    
+    threading.Thread(target=_play, daemon=True).start()
+
 def save(time,distance,count_time,n,m,chizu):# n is direct switch,m is para
     file_name = "/home/frienkie/result/data.xlsx"
 
@@ -87,7 +114,7 @@ def save(time,distance,count_time,n,m,chizu):# n is direct switch,m is para
     if count_time==0:
         data3=0
     else:
-        data3 = count_time-time
+        data3 = count_time
     # 格式化浮点数，保留两位小数
     formatted_data1 = round(data1, 2)
     formatted_data2 = round(data2, 2)

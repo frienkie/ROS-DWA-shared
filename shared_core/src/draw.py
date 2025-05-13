@@ -4,7 +4,7 @@ import ast
 import os
 
 HOME_DIR = os.path.expanduser("~")
-file_path1 = os.path.join(HOME_DIR, "obstacles.txt")
+file_path1 = os.path.join(HOME_DIR, "obstacle_coords_world1.txt")
 file_path2 = os.path.join(HOME_DIR, "cood/test0.txt")
 
 
