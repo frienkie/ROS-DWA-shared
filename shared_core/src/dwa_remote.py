@@ -18,7 +18,7 @@ from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
 from std_msgs.msg import Float32
 from visualization_msgs.msg import Marker
-from distancetime import *
+from distancetime0 import *
 import json
 import signal
 import sys
@@ -73,7 +73,7 @@ class Config():
             self.speed_cost_gain = 1.0 #lower = faster
             self.obs_cost_gain = 1.0 #lower z= fearless
         #############################
-        self.robot_radius = 0.12  # [m]
+        self.robot_radius = 0.105  # [m]
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
@@ -84,7 +84,7 @@ class Config():
         self.distance = 0.0
         self.first_time=True
         self.mindect=0.12
-        self.maxdect=1.2
+        self.maxdect=2.5
         self.prev_x0= 0.0
         self.prev_y0= 0.0
         self.distance0=0.0
@@ -137,7 +137,7 @@ class Obstacles():
         self.obst = set()   # reset the obstacle set to only keep visible objects
 
         for i in range(len(msg.ranges)):
-            if msg.ranges[i]>config.maxdect:
+            if msg.ranges[i]>config.maxdect or msg.ranges[i] == float('Inf'):
                 continue
             elif np.isnan(msg.ranges[i]):
                 distance = config.mindect
@@ -182,7 +182,7 @@ class Obstacles():
                 # scan_range.append(3.5)
 
             elif msg.ranges[i]<config.mindect:
-                distance=config.mindect
+                distance=config.maxdect
 
             elif np.isnan(msg.ranges[i]):
                 # scan_range.append(0)
@@ -356,7 +356,7 @@ def calc_obstacle_cost(traj, ob, config):
                 minr = r
 
 
-    return (minr-config.mindect)/(config.maxdect-config.mindect)
+    return (minr-config.robot_radius)/(config.maxdect-config.robot_radius)
 
 ############################################################################333
 def calc_to_human_cost( v, w,config,traj,n):
@@ -399,7 +399,6 @@ def share1(vel_msg,config):# human command get 获取人类指令
     global human_r
     global inputkey
     global human_angle
-    global xh,yh
 
     human.linear.x=vel_msg.linear.x
     human.angular.z=vel_msg.angular.z
@@ -493,45 +492,6 @@ def h_line(num):
         exec(f"line_point{i}.z = 0.0")
         exec(f"h_marker.points.append(line_point{i})")
 
-class RandomNumberGenerator:
-    def __init__(self):
-        # self.numbers = list(range(4, 6))  # 数字列表
-        self.numbers = list(range(1, 2))
-        self.index = 0  # 当前索引
-        self.toggle = False  # 控制交替返回数字和 0
-        self.shuffled = True  # 是否已打乱数字列表
-        self.finished = False  # 标志数字列表是否已完全遍历
-
-    def get_next(self):
-        global yici
-
-        # 如果尚未打乱数字列表，进行随机排列
-        if not self.shuffled:
-            random.shuffle(self.numbers)
-            self.shuffled = True
-
-        # 如果数字列表尚未完全遍历
-        if self.index < len(self.numbers):
-            # if self.toggle:
-            #     current_number = 0  # 返回间隔 0
-            #     yici = 1  # 间隔 0 时 yici 为 1
-            # else:
-                current_number = self.numbers[self.index]  # 返回当前数字
-                self.index += 1
-            # self.toggle = not self.toggle
-        else:
-            # 所有数字生成完
-            if not self.finished:
-                current_number = 1  # 最后的间隔 0
-                yici = 0  # 此时 yici 为 0
-                self.finished = True  # 标志遍历结束
-            else:
-                current_number = 1  # 持续返回 0
-                yici = 0  # 列表完全遍历完后 yici 为 0
-
-        return current_number
-
-
 
 def change_goal(config,n):
     global yici
@@ -588,8 +548,6 @@ def main():
     global yici
     global write
     print(__file__ + " start!!")
-    print("which map is used now?")
-    chizu=input()
     print("human is 0,share is 1")
     inputs=input()
     if inputs=="0":
@@ -613,14 +571,14 @@ def main():
     threading.Thread(target=listen_key, daemon=True).start()
 
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
-    subLaser1 = rospy.Subscriber("scan", LaserScan, obs.assignObs1, config)
+    #subLaser1 = rospy.Subscriber("scan", LaserScan, obs.assignObs1, config)
     subLaser = rospy.Subscriber("/filtered_scan", LaserScan, obs.assignObs, config)
 
     sub_hum = rospy.Subscriber("/cmd_vel_human",Twist,share1,config,queue_size=1)
 
     pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
 
-    x_value_pub = rospy.Publisher('/min_d', Float32, queue_size = 1)
+    #x_value_pub = rospy.Publisher('/min_d', Float32, queue_size = 1)
     # sub_obs = rospy.Subscriber("/gazebo/base_collision",Contact,StringMessageCounter.callbackobs,queue_size=10)
     pub_line = rospy.Publisher('~line_list', Marker, queue_size=10)
     pub_line_human = rospy.Publisher('~line_list_human', Marker, queue_size=10)
@@ -634,7 +592,7 @@ def main():
     # initial linear and angular velocities
     u = np.array([0.0, 0.0])
 
-    file_value=start_rosbag()
+    # file_value=start_rosbag()
     print("You can press y to stop and save rosbag when you need.")
     start_time = rospy.get_time()
     # runs until terminated externally
@@ -661,16 +619,17 @@ def main():
         if yici>0:
             marker_pub.publish(markers)
         pub.publish(speed)
-        x_value_pub.publish(obs.minx)
+        #x_value_pub.publish(obs.minx)
 
         if write==1:
 
             if yici>0:
                 print("YOU have arrive the goal point")
+                print("run time: %.2f s" % (rospy.get_time()-start_time))
                 print("distance in this time: %.2f m" % config.distance)
-                with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
-                    json.dump(list(config.xy), f)
-                stop_rosbag()
+                # with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
+                #     json.dump(list(config.xy), f)
+                # stop_rosbag()
                 # change_goal(config,rand.get_next())
                 # goal_sphere(config)
                 play_celebration_sound()

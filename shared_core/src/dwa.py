@@ -355,7 +355,7 @@ def calc_obstacle_cost(traj, ob, config):
                 minr = r
 
 
-    return (minr-config.mindect)/(config.maxdect-config.mindect)
+    return (minr-config.robot_radius)/(config.maxdect-config.robot_radius)
 
 ############################################################################333
 def calc_to_human_cost( v, w,config,traj,n):

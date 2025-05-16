@@ -36,7 +36,7 @@ def median_deviation(scan, window):
         # If it's higher than 20% replace its value with an extreme
         # None value is not  acceptable
         for j, elem in enumerate(temp):
-            if (med - elem)/med*100 > 7:
+            if (med - elem)/med*100 > 10:
                 temp[j] = float('Inf')
         
         result.extend(temp)
@@ -46,7 +46,7 @@ def median_deviation(scan, window):
         temp = scan[-mod:]
         med = median(temp)
         for j, elem in enumerate(temp):
-            if (med - elem)/med*100 > 7:
+            if (med - elem)/med*100 > 10:
                 temp[j] = float('Inf')
         result.extend(temp)
     
