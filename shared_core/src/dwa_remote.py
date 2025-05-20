@@ -49,7 +49,7 @@ class Config():
         self.max_dyawrate = 3.2  # [rad/ss]
         ##################################################33
         self.v_reso = 0.04  # [m/s]
-        self.yawrate_reso = 0.04  # [rad/s]
+        self.yawrate_reso = 0.1  # [rad/s]
         #######################################################
         self.dt = 0.4  # [s]
         self.predict_time = 2.4  # [s]
@@ -73,7 +73,7 @@ class Config():
             self.speed_cost_gain = 1.0 #lower = faster
             self.obs_cost_gain = 1.0 #lower z= fearless
         #############################
-        self.robot_radius = 0.105  # [m]
+        self.robot_radius = 0.12  # [m]
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
@@ -84,7 +84,7 @@ class Config():
         self.distance = 0.0
         self.first_time=True
         self.mindect=0.12
-        self.maxdect=2.5
+        self.maxdect=1.2
         self.prev_x0= 0.0
         self.prev_y0= 0.0
         self.distance0=0.0
