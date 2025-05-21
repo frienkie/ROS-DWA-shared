@@ -100,14 +100,13 @@ def start_rosbag():
     :param record_topics: 要记录的 ROS 话题列表，字符串或列表形式
     :param output_file: rosbag 保存的文件路径，不需要后缀名
     """
-    count=1
     record_topics = ["/cmd_vel", "/cmd_vel_human", "/odom", "/min_d"]  # 话题
 
     rosbag_dir = os.path.expanduser("~/rosbag")  # Expands to /home/user/rosbag
     os.makedirs(rosbag_dir, exist_ok=True)  # Ensure directory exists
 
     # Output file path
-    output_file = os.path.join(rosbag_dir, f"rosbag{count}")
+    output_file = os.path.join(rosbag_dir, "rosbag1")
 
     global rosbag_process
     # 构建 rosbag record 命令
@@ -121,7 +120,6 @@ def start_rosbag():
     print(f"Starting rosbag recording: {' '.join(cmd)}")
     rosbag_process = subprocess.Popen(cmd)
     print("rosbag recording started.")
-    return count
 
 def stop_rosbag():
     """

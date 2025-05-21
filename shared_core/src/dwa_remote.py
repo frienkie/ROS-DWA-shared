@@ -43,7 +43,7 @@ class Config():
         #NOTE 0.55,0.1,1.0,1.6,3.2,0.15,0.05,0.1,1.7,2.4,0.1,3.2,0.18
         self.max_speed = 0.20  # [m/s]
         self.min_speed = 0.0  # [m/s]
-        self.max_yawrate = 0.6  # [rad/s]
+        self.max_yawrate = 1.5  # [rad/s]
 
         self.max_accel = 2.5  # [m/ss]
         self.max_dyawrate = 3.2  # [rad/ss]
@@ -592,7 +592,7 @@ def main():
     # initial linear and angular velocities
     u = np.array([0.0, 0.0])
 
-    # file_value=start_rosbag()
+    start_rosbag()
     print("You can press y to stop and save rosbag when you need.")
     start_time = rospy.get_time()
     # runs until terminated externally
@@ -629,7 +629,7 @@ def main():
                 print("distance in this time: %.2f m" % config.distance)
                 # with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
                 #     json.dump(list(config.xy), f)
-                # stop_rosbag()
+                stop_rosbag()
                 # change_goal(config,rand.get_next())
                 # goal_sphere(config)
                 play_celebration_sound()
