@@ -548,15 +548,15 @@ def main():
     global yici
     global write
     print(__file__ + " start!!")
-    print("human is 0,share is 1")
-    inputs=input()
-    if inputs=="0":
-            inputkey=0
-    elif inputs=="1":
-            inputkey=1
-    else:
-            rospy.loginfo("input error,run as human")
-            inputkey = 0
+    # sprint("human is 0,share is 1")
+    inputkey=1
+    # if inputs=="0":
+    #         inputkey=0
+    # elif inputs=="1":
+    #         inputkey=1
+    # else:
+    #         rospy.loginfo("input error,run as human")
+    #         inputkey = 0
 
     # robot specification
     # rand=RandomNumberGenerator()
@@ -571,14 +571,14 @@ def main():
     threading.Thread(target=listen_key, daemon=True).start()
 
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
-    #subLaser1 = rospy.Subscriber("scan", LaserScan, obs.assignObs1, config)
+    subLaser1 = rospy.Subscriber("/scan", LaserScan, obs.assignObs1, config)
     subLaser = rospy.Subscriber("/filtered_scan", LaserScan, obs.assignObs, config)
 
     sub_hum = rospy.Subscriber("/cmd_vel_human",Twist,share1,config,queue_size=1)
 
     pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
 
-    #x_value_pub = rospy.Publisher('/min_d', Float32, queue_size = 1)
+    x_value_pub = rospy.Publisher('/min_d', Float32, queue_size = 1)
     # sub_obs = rospy.Subscriber("/gazebo/base_collision",Contact,StringMessageCounter.callbackobs,queue_size=10)
     pub_line = rospy.Publisher('~line_list', Marker, queue_size=10)
     pub_line_human = rospy.Publisher('~line_list_human', Marker, queue_size=10)
@@ -619,7 +619,7 @@ def main():
         if yici>0:
             marker_pub.publish(markers)
         pub.publish(speed)
-        #x_value_pub.publish(obs.minx)
+        x_value_pub.publish(obs.minx)
 
         if write==1:
 
