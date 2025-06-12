@@ -19,7 +19,7 @@ catkin build ROS-DWA-shared -DCMAKE_BUILD_TYPE=Release
 ```bash
 rosrun ROS-DWA-shared dwa_remote.py
 ```
-This will launch the DWA-shared cpntroller.
+This will launch the DWA-shared controller.
 
 ## Running Demo with Simulator
 If using TurtleBot3 in Gazebo:
@@ -30,7 +30,6 @@ git clone -b noetic-devel https://github.com/ROBOTIS-GIT/turtlebot3_msgs.git
 git clone -b noetic-devel https://github.com/ROBOTIS-GIT/turtlebot3_simulations.git
 cd ~/catkin_ws
 export TURTLEBOT3_MODEL=burger
-roslaunch ROS-DWA-shared demo.launch
 ```
 
 ## Topics
