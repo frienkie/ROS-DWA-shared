@@ -43,13 +43,13 @@ class Config():
         #NOTE 0.55,0.1,1.0,1.6,3.2,0.15,0.05,0.1,1.7,2.4,0.1,3.2,0.18
         self.max_speed = 0.20  # [m/s]
         self.min_speed = 0.0  # [m/s]
-        self.max_yawrate = 1.5  # [rad/s]
+        self.max_yawrate = 0.6  # [rad/s]
 
         self.max_accel = 2.5  # [m/ss]
         self.max_dyawrate = 3.2  # [rad/ss]
         ##################################################33
         self.v_reso = 0.04  # [m/s]
-        self.yawrate_reso = 0.1  # [rad/s]
+        self.yawrate_reso = 0.04  # [rad/s]
         #######################################################
         self.dt = 0.4  # [s]
         self.predict_time = 2.4  # [s]
@@ -123,6 +123,7 @@ class Obstacles():
         # Set of coordinates of obstacles in view
         self.obst = set()
         self.obs1 = set()
+        self.obs_last=set()
         self.minx = 3.5
         self.deltx = 0.15
         self.index = 0
@@ -172,6 +173,12 @@ class Obstacles():
             config.prev_y0=config.y
         if self.pattern==1:
             self.obst= self.obs1 | self.obst
+
+        if len(self.obs_last) - len(self.obst)>40:
+            self.obst=self.obs_last | self.obst
+        else:
+            self.obs_last=self.obst.copy()
+
 
     def assignObs1(self, msg, config):
         self.minx=3.5
@@ -592,7 +599,7 @@ def main():
     # initial linear and angular velocities
     u = np.array([0.0, 0.0])
 
-    start_rosbag()
+    file_value=start_rosbag()
     print("You can press y to stop and save rosbag when you need.")
     start_time = rospy.get_time()
     # runs until terminated externally
@@ -621,12 +628,13 @@ def main():
         pub.publish(speed)
         x_value_pub.publish(obs.minx)
 
-        if write==1:
+        if write==1 or config.x>2.0:
 
             if yici>0:
                 print("YOU have arrive the goal point")
                 print("run time: %.2f s" % (rospy.get_time()-start_time))
                 print("distance in this time: %.2f m" % config.distance)
+                save(start_time,config.distance,inputkey,args.param)
                 # with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
                 #     json.dump(list(config.xy), f)
                 stop_rosbag()

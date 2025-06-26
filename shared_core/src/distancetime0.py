@@ -14,7 +14,7 @@ from sensor_msgs.msg import JoyFeedbackArray,JoyFeedback
 import subprocess
 import time
 from geometry_msgs.msg import Twist, Point
-
+from openpyxl import Workbook, load_workbook # type: ignore
 
 markers = Marker()
 def goal_sphere(config):
@@ -90,7 +90,26 @@ def play_celebration_sound():
     
     threading.Thread(target=_play, daemon=True).start()
 
-
+def read_last_value_from_column():
+    # 读取Excel文件
+    workbook = load_workbook("/home/frienkie/result/data_real.xlsx") # 替换为你的Excel文件名
+    sheet = workbook['Sheet1']  # 替换为你的工作表名
+    row=1
+    for cell in sheet['P']:
+            if cell.value is not None:
+                row += 1
+            else:
+                break
+    if row>1:
+        last_row=row-1
+    else:
+        last_row=1
+    # 获取第16列的最后一行的值
+    valid_values = sheet.cell(row=last_row, column=16).value
+    # 检查是否是数字
+    if not isinstance(valid_values, (int, float)):
+        return 1
+    return valid_values+1
 
 rosbag_process = None
 
@@ -100,13 +119,14 @@ def start_rosbag():
     :param record_topics: 要记录的 ROS 话题列表，字符串或列表形式
     :param output_file: rosbag 保存的文件路径，不需要后缀名
     """
+    count=read_last_value_from_column()
     record_topics = ["/cmd_vel", "/cmd_vel_human", "/odom", "/min_d"]  # 话题
 
-    rosbag_dir = os.path.expanduser("~/rosbag")  # Expands to /home/user/rosbag
+    rosbag_dir = os.path.expanduser("~/rosbag_real")  # Expands to /home/user/rosbag
     os.makedirs(rosbag_dir, exist_ok=True)  # Ensure directory exists
 
     # Output file path
-    output_file = os.path.join(rosbag_dir, "rosbag1")
+    output_file = os.path.join(rosbag_dir, f"rosbag{count}")
 
     global rosbag_process
     # 构建 rosbag record 命令
@@ -120,6 +140,7 @@ def start_rosbag():
     print(f"Starting rosbag recording: {' '.join(cmd)}")
     rosbag_process = subprocess.Popen(cmd)
     print("rosbag recording started.")
+    return count
 
 def stop_rosbag():
     """
@@ -134,3 +155,51 @@ def stop_rosbag():
         print("rosbag recording stopped.")
     else:
         print("No rosbag recording process found.")
+
+
+
+def save(time,distance,n,m):# n is direct switch,m is para
+    file_name = "/home/frienkie/result/data_real.xlsx"
+
+    # 检查文件是否存在
+    if os.path.exists(file_name):
+        # 如果文件存在，加载工作簿
+        workbook = load_workbook(file_name)
+        sheet = workbook.active
+    else:
+        # 如果文件不存在，创建新的工作簿
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Sheet1"
+    row=1
+    # 查找第一列中最后一行的行号
+
+    # 需要写入的浮点数据（这里替换为你的数据）
+    data1 = get_time(time)  # 示例浮点数
+    data2 = distance
+    # 格式化浮点数，保留两位小数
+    formatted_data1 = round(data1, 2)
+    formatted_data2 = round(data2, 2)
+    # 将数据写入第一列的下一行
+    if n==0:
+        for cell in sheet['N']:
+            if cell.value is not None:
+                row += 1
+            else:
+                break
+        sheet.cell(row=row, column=1, value=formatted_data1)
+        sheet.cell(row=row, column=2, value=formatted_data2)
+        sheet.cell(row=row, column=14, value=4)
+        sheet.cell(row=row, column=16, value=row-1)
+    else:
+        for cell in sheet['N']:
+            if cell.value is not None:
+                row += 1
+            else:
+                break
+        sheet.cell(row=row, column=7, value=formatted_data1)
+        sheet.cell(row=row, column=8, value=formatted_data2)
+        sheet.cell(row=row, column=14, value=m)
+        sheet.cell(row=row, column=16, value=row-1)
+    # 保存工作簿
+    workbook.save(file_name)
