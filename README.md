@@ -1,7 +1,7 @@
 # ROS‑DWA‑shared
 
 ## Overview
-ROS implementation of the Dynamic Window Approach (DWA) local planner for robot navigation. Given a global path and costmaps, it outputs velocity commands to steer a mobile base, avoiding obstacles in real time.
+ROS implementation of the Dynamic Window Approach (DWA) local planner for robot shared navigation. Given human velocities, it outputs velocity commands to steer a mobile base, avoiding obstacles in real time.
 
 ## Environment
 - Ubuntu 20.04  
