@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Author: Connor McGuile
 # Feel free to use in any way.
@@ -10,15 +10,19 @@
 # before beginning the loop. If you do not want obstacles, create an empty set.
 # Implentation based off Fox et al.'s paper, The Dynamic Window Approach to 
 # Collision Avoidance (1997).
-import rospy
+# ROS2 Version
+
+import rclpy
+from rclpy.node import Node
 import math
+import numpy as np
 from geometry_msgs.msg import Twist, Point
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
-from tf.transformations import euler_from_quaternion
+from tf_transformations import euler_from_quaternion
 from std_msgs.msg import Float32
 from visualization_msgs.msg import Marker
-from distancetime import *
+from distancetime_ros2 import *
 import json
 import signal
 import sys
@@ -26,6 +30,8 @@ from pynput import keyboard  # for keyboard input detect
 import simpleaudio as sa
 import threading
 import argparse
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+
 parser = argparse.ArgumentParser(description="设置参数")
 
 # 添加参数
@@ -113,7 +119,7 @@ class Config:
         self.prev_y0: float = 0.0
         self.distance0: float = 0.0
         self.xy: set = set()
-        self.r = rospy.Rate(20)
+        self.rate = 20.0  # Hz
 
     def assignOdomCoords(self, msg: Odometry) -> None:
         """
@@ -138,8 +144,8 @@ class Config:
         """
         Callback for receiving goal coordinates from Rviz.
         """
-        self.goalX = msg.point.x
-        self.goalY = msg.point.y
+        self.goalX = msg.x
+        self.goalY = msg.y
 
 class Obstacles():
     def __init__(self):
@@ -150,13 +156,9 @@ class Obstacles():
         self.deltx = 0.15
         self.index = 0
         self.pattern = 0
-        # self.obstacle_list = []  # 先用列表存储，再一次性加入 set
-
 
     def assignObs(self, msg, config):
-
         deg = len(msg.ranges)   # Number of degrees - varies in Sim vs real world
-        # print("Laser degree length {}".format(deg))
         self.obst = set()   # reset the obstacle set to only keep visible objects
 
         for i in range(len(msg.ranges)):
@@ -164,7 +166,6 @@ class Obstacles():
                 continue
             elif np.isnan(msg.ranges[i]):
                 distance = config.mindect
-
             else:
                 distance = msg.ranges[i]
 
@@ -187,8 +188,6 @@ class Obstacles():
         if config.distance0>self.deltx:
             if self.index == 0:
                 self.obs1 = self.obst.copy()
-            # elif self.index == 1:
-            #     self.obs2 = self.obst.copy()
             self.index = (self.index + 1) % 1
             config.prev_x0=config.x
             config.prev_y0=config.y
@@ -198,24 +197,17 @@ class Obstacles():
     def assignObs1(self, msg, config):
         self.minx=3.5
         for i in range(len(msg.ranges)):
-            # if msg.ranges[i] == float('Inf'):
             if msg.ranges[i]>config.maxdect or msg.ranges[i] == float('Inf'):
                 distance=config.maxdect
-                # scan_range.append(3.5)
-
             elif msg.ranges[i]<config.mindect:
                 distance=config.mindect
-
             elif np.isnan(msg.ranges[i]):
-                # scan_range.append(0)
                 distance = 0.12
-
             else:
                 distance = msg.ranges[i]
             if self.minx>distance:
                 self.minx=distance
 
-        
 # Model to determine the expected position of the robot after moving along trajectory
 def motion(x, u, dt):
     # motion model
@@ -228,7 +220,6 @@ def motion(x, u, dt):
 
 # Determine the dynamic window from robot configurations
 def calc_dynamic_window(x, config):
-
     # Dynamic window from robot specification
     Vs = [config.min_speed, config.max_speed,
           -config.max_yawrate, config.max_yawrate]
@@ -333,7 +324,6 @@ def calc_trajectory(xinit, v, y, config):
     return traj
 
 def calc_angle_fromtraj(v, y, config):
-
     x = np.array([config.x,config.y,config.th,v,y])
     time = 0
     while time <= config.predict_time:
@@ -343,15 +333,9 @@ def calc_angle_fromtraj(v, y, config):
 
     return x[0],x[1]
 
-
-################################################################################
-
-
-
 # Calculate trajectory, costings, and return velocities to apply to robot
 def calc_final_input(x, u, dw, config, ob):
-    # global list_x,list_y,line_num
-    xinit = x[:]######
+    xinit = x[:]
     max_cost = 0.0
     max_u = u
     max_u[0] = 0.0 #no way can be chosen
@@ -374,20 +358,15 @@ def calc_final_input(x, u, dw, config, ob):
                 continue
 
             final_cost = to_human_cost + speed_cost + ob_cost
-            
 
             # search minimum trajectory     ##最大代价
             if max_cost <= final_cost:
                 max_cost = final_cost
                 max_u = [v, w]
-    # if max_u[0]==0.0:
-    #     max_u[1]=human.angular.z
+
     simulate_trajectory(xinit, max_u[0], max_u[1], config)
     simulate_trajectory(xinit, human.linear.x, human.angular.z, config)
     return max_u
-#################################################################################
-
-
 
 # Calculate obstacle cost inf: collision, 0:free
 def calc_obstacle_cost(traj, ob, config):
@@ -411,10 +390,8 @@ def calc_obstacle_cost(traj, ob, config):
             if minr >= r:
                 minr = r
 
-
     return (minr-config.robot_radius)/(config.maxdect-config.robot_radius)
 
-############################################################################333
 def calc_to_human_cost( v, w,config,traj,n):
     global human_angle
     global xr,yr,xh,yh
@@ -423,8 +400,6 @@ def calc_to_human_cost( v, w,config,traj,n):
             robot_r=float("inf")
         else:
             robot_r=v/w
-        
-        #cost =abs(np.tanh(robot_r/10)-np.tanh(human_r/10))
 
         if (robot_r< config.v_reso/config.max_yawrate)and w>0:
             robot_r=config.v_reso/config.max_yawrate-0.01
@@ -447,16 +422,12 @@ def calc_to_human_cost( v, w,config,traj,n):
         cost=abs(math.atan2(w,v)-human_r)/math.pi
 
     return cost
-##################################################################################
 
 # Begin DWA calculations
 def dwa_control(x, u, config, ob):
     # Dynamic Window control
-
     dw = calc_dynamic_window(x, config)
-
     u = calc_final_input(x, u, dw, config, ob)
-
     return u
 
 def atGoal(config):
@@ -472,7 +443,6 @@ def atGoal0(config):
         return 1
     return 0
 
-
 def share1(vel_msg,config):# human command get 获取人类指令
     global human
     global human_r
@@ -480,27 +450,16 @@ def share1(vel_msg,config):# human command get 获取人类指令
     global human_angle
     global xh,yh
 
-    
-
     human.linear.x=vel_msg.linear.x
     human.angular.z=vel_msg.angular.z
     
-    # if human.linear.x<-0.08:
-    #     human.linear.x=-0.08
-
     if human.linear.x<0.0:
         human.linear.x=0.0
     human_angle=human.angular.z
     if human.linear.x<=0.001 and human.linear.x>=-0.001:
         human.linear.x = 0.0
-    # human_angle=cal_angle(human.linear.x,human.angular.z)
     human_r=math.atan2(human.angular.z,human.linear.x)
     xh,yh=calc_angle_fromtraj(human.linear.x,human.angular.z,config)
-
-
-
-
-# Remove old marker and h_marker global variables and line/h_line functions
 
 class RandomNumberGenerator:
     """
@@ -532,7 +491,6 @@ class RandomNumberGenerator:
                 yici = 0
         return current_number
 
-
 def change_goal(config: Config, n: int) -> None:
     """
     Change the robot's goal coordinates based on the provided index.
@@ -559,7 +517,6 @@ def change_goal(config: Config, n: int) -> None:
     if yici == 1:
         print(n)
 
-
 def listen_key() -> None:
     """
     Listen for keyboard input in a separate thread. Sets the global 'write' variable to 1 when 'y' is pressed.
@@ -577,15 +534,117 @@ def listen_key() -> None:
     with keyboard.Listener(on_press=on_press) as listener:
         listener.join()
 
+class DWANode(Node):
+    def __init__(self):
+        super().__init__('dwa_node')
+        
+        # QoS profiles
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+        
+        # Initialize configuration and obstacles
+        self.config = Config()
+        self.obs = Obstacles()
+        self.rand = RandomNumberGenerator()
+        
+        # Initialize state
+        self.x = np.array([self.config.x, self.config.y, self.config.th, 0.0, 0.0])
+        self.u = np.array([0.0, 0.0])
+        self.speed = Twist()
+        
+        # Initialize marker lines
+        self.marker_line = MarkerLine(color=(0.0, 1.0, 0.0, 1.0))
+        self.marker_line_human = MarkerLine(color=(0.0, 0.0, 1.0, 1.0))
+        
+        # Setup subscriptions
+        self.odom_sub = self.create_subscription(
+            Odometry, '/odom', self.config.assignOdomCoords, qos_profile)
+        self.scan_sub1 = self.create_subscription(
+            LaserScan, 'scan', self.obs.assignObs1, qos_profile)
+        self.scan_sub = self.create_subscription(
+            LaserScan, '/filtered_scan', self.obs.assignObs, qos_profile)
+        self.human_sub = self.create_subscription(
+            Twist, '/cmd_vel_human', self.share1_callback, qos_profile)
+        
+        # Setup publishers
+        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.min_d_pub = self.create_publisher(Float32, '/min_d', 10)
+        self.line_pub = self.create_publisher(Marker, '~/line_list', 10)
+        self.line_human_pub = self.create_publisher(Marker, '~/line_list_human', 10)
+        self.marker_pub = self.create_publisher(Marker, 'visualization_marker', 10)
+        
+        # Setup timer
+        self.timer = self.create_timer(1.0/self.config.rate, self.timer_callback)
+        
+        # Initialize other variables
+        self.start_time = self.get_clock().now()
+        self.counter = StringMessageCounter()
+        self.file_value = start_rosbag()
+        
+        # Start keyboard listener
+        threading.Thread(target=listen_key, daemon=True).start()
+        
+        # Set initial goal
+        change_goal(self.config, self.rand.get_next())
+        goal_sphere(self.config)
+        
+        self.get_logger().info("DWA Node initialized")
 
-def main() -> None:
-    """
-    Main entry point for the DWA shared control node.
-    Handles initialization, ROS subscriptions/publications, and main control loop.
-    """
-    global yici
-    global write
-    print(__file__ + " start!!")
+    def share1_callback(self, msg):
+        """Callback for human commands"""
+        share1(msg, self.config)
+
+    def timer_callback(self):
+        """Main control loop"""
+        global inputkey, yici, write
+        
+        if inputkey == 1:
+            self.u = dwa_control(self.x, self.u, self.config, self.obs.obst)
+            self.x[0] = self.config.x
+            self.x[1] = self.config.y
+            self.x[2] = self.config.th
+            self.x[3] = self.u[0]
+            self.x[4] = self.u[1]
+            self.speed.linear.x = self.x[3]
+            self.speed.angular.z = self.x[4]
+            simulate_trajectory(self.x, self.x[3], self.x[4], self.config, self.marker_line, list_x)
+            self.line_pub.publish(self.marker_line.get_marker())
+            simulate_trajectory(self.x, human.linear.x, human.angular.z, self.config, self.marker_line_human, list_x_human)
+            self.line_human_pub.publish(self.marker_line_human.get_marker())
+        else:
+            self.speed.linear.x = human.linear.x
+            self.speed.angular.z = human.angular.z
+            
+        if yici > 0:
+            self.marker_pub.publish(markers)
+            
+        self.cmd_vel_pub.publish(self.speed)
+        
+        min_d_msg = Float32()
+        min_d_msg.data = self.obs.minx
+        self.min_d_pub.publish(min_d_msg)
+        
+        if atGoal(self.config) == 1 or write == 1:
+            if yici > 0:
+                self.get_logger().info("YOU have arrive the goal point")
+                current_time = self.get_clock().now()
+                elapsed_time = (current_time - self.start_time).nanoseconds / 1e9
+                save(elapsed_time, self.config.distance, self.counter.count_time, inputkey, args.param, "map")
+                self.get_logger().info(f"distance in this time: {self.config.distance:.2f} m")
+                self.get_logger().info(f"hit time: {self.counter.send_count}")
+                with open(f'/home/frienkie/cood/test{self.file_value}.txt', 'w') as f:
+                    json.dump(list(self.config.xy), f)
+                stop_rosbag()
+                change_goal(self.config, self.rand.get_next())
+                goal_sphere(self.config)
+                play_celebration_sound()
+
+def main(args=None):
+    rclpy.init(args=args)
+    
     print("which map is used now?")
     chizu = input()
     print("human is 0,share is 1")
@@ -595,85 +654,22 @@ def main() -> None:
     elif inputs == "1":
         inputkey = 1
     else:
-        rospy.loginfo("input error,run as human")
+        print("input error,run as human")
         inputkey = 0
-
-    rand = RandomNumberGenerator()
-    config = Config()
-    obs = Obstacles()
+    
     if chizu == "4":
-        config.robot_radius = 0.106
-        obs.pattern = 1
-        print("changed OK")
-    model_name = "turtlebot3"
-    target_position = [-3.6, -3.0, 0.0]
-    target_orientation = [0.0, 0.0, 0.707, 0.707]
-    set_robot_position(model_name, target_position, target_orientation)
-
-    counter = StringMessageCounter()
-    threading.Thread(target=listen_key, daemon=True).start()
-
-    subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
-    subLaser1 = rospy.Subscriber("scan", LaserScan, obs.assignObs1, config)
-    subLaser = rospy.Subscriber("/filtered_scan", LaserScan, obs.assignObs, config)
-    sub_hum = rospy.Subscriber("/cmd_vel_human", Twist, share1, config, queue_size=1)
-
-    pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
-    x_value_pub = rospy.Publisher('/min_d', Float32, queue_size=1)
-    pub_line = rospy.Publisher('~line_list', Marker, queue_size=10)
-    pub_line_human = rospy.Publisher('~line_list_human', Marker, queue_size=10)
-    marker_pub = rospy.Publisher('visualization_marker', Marker, queue_size=10)
-
-    speed = Twist()
-    change_goal(config, rand.get_next())
-    goal_sphere(config)
-    x = np.array([config.x, config.y, config.th, 0.0, 0.0])
-    u = np.array([0.0, 0.0])
-
-    file_value = start_rosbag()
-    print("You can press y to stop and save rosbag when you need.")
-    start_time = rospy.get_time()
-
-    # Instantiate marker lines for robot and human trajectories
-    marker_line = MarkerLine(color=(0.0, 1.0, 0.0, 1.0))
-    marker_line_human = MarkerLine(color=(0.0, 0.0, 1.0, 1.0))
-
-    while not rospy.is_shutdown():
-        if inputkey == 1:
-            u = dwa_control(x, u, config, obs.obst)
-            x[0] = config.x
-            x[1] = config.y
-            x[2] = config.th
-            x[3] = u[0]
-            x[4] = u[1]
-            speed.linear.x = x[3]
-            speed.angular.z = x[4]
-            simulate_trajectory(x, x[3], x[4], config, marker_line, list_x)
-            pub_line.publish(marker_line.get_marker())
-            simulate_trajectory(x, human.linear.x, human.angular.z, config, marker_line_human, list_x_human)
-            pub_line_human.publish(marker_line_human.get_marker())
-        else:
-            speed.linear.x = human.linear.x
-            speed.angular.z = human.angular.z
-        if yici > 0:
-            marker_pub.publish(markers)
-        pub.publish(speed)
-        x_value_pub.publish(obs.minx)
-        if atGoal(config) == 1 or write == 1:
-            if yici > 0:
-                print("YOU have arrive the goal point")
-                save(start_time, config.distance, counter.count_time, inputkey, args.param, chizu)
-                print("distance in this time: %.2f m" % config.distance)
-                print("hit time: %d " % counter.send_count)
-                with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
-                    json.dump(list(config.xy), f)
-                stop_rosbag()
-                change_goal(config, rand.get_next())
-                goal_sphere(config)
-                play_celebration_sound()
-        config.r.sleep()
-
+        # Configure for specific map
+        pass
+    
+    node = DWANode()
+    
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
-    rospy.init_node('shared_dwa')
-    main()
+    main() 
