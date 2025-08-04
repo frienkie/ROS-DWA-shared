@@ -26,7 +26,9 @@ ament_python_install_package(${PROJECT_NAME})
 # Install Python executables
 install(PROGRAMS
   src/dwa_ros2.py
+  src/dwa_remote_ros2.py
   src/distancetime_ros2.py
+  src/distancetime0_ros2.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

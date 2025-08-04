@@ -47,8 +47,9 @@ source install/setup.bash
 
 ## Usage
 
-### Running the DWA Node
+### Running the DWA Nodes
 
+1. **Main DWA Node** (for simulation):
 ```bash
 # Run with parameter 1 (balanced cost weights)
 ros2 run shared_core dwa_node --param 1
@@ -59,6 +60,15 @@ ros2 run shared_core dwa_node --param 2
 # Run with parameter 3 (human command priority)
 ros2 run shared_core dwa_node --param 3
 ```
+
+2. **Remote DWA Node** (for real-world experiments):
+```bash
+ros2 run shared_core dwa_remote_node
+```
+
+**Note**: For `dwa_remote_node`, you can control recording by modifying the `RECORD` variable in the file:
+- Set `RECORD = True` to enable rosbag recording and data saving
+- Set `RECORD = False` to disable recording (faster execution)
 
 ### Launch Files
 
@@ -148,6 +158,13 @@ Key robot parameters can be modified in the `Config` class:
    - Ensure tf2 is running and transforms are available
    - Check frame IDs in visualization markers
 
+### Testing
+
+Run the test script to verify everything is working:
+```bash
+python3 test_ros2_nodes.py
+```
+
 ### Debug Mode
 
 To run with debug output:
@@ -161,14 +178,18 @@ ros2 run shared_core dwa_node --param 1 --ros-args --log-level debug
 shared_core/
 ├── src/
 │   ├── dwa_ros2.py              # Main DWA node
+│   ├── dwa_remote_ros2.py       # Remote DWA node
 │   ├── distancetime_ros2.py     # Utility functions
+│   ├── distancetime0_ros2.py    # Real-world utility functions
 │   └── filter.py                # Laser scan filter
 ├── launch/
 │   └── remote.launch.py         # ROS2 launch file
 ├── shared_core/
 │   ├── __init__.py
 │   ├── dwa_ros2.py              # Package version
-│   └── distancetime_ros2.py     # Package version
+│   ├── dwa_remote_ros2.py       # Package version
+│   ├── distancetime_ros2.py     # Package version
+│   └── distancetime0_ros2.py    # Package version
 ├── resource/
 │   └── shared_core              # Package resource file
 ├── package.xml                  # ROS2 package manifest

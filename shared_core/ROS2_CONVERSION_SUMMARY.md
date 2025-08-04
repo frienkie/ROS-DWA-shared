@@ -16,6 +16,17 @@ This document summarizes all the changes made to convert the DWA shared control 
   - Added proper node lifecycle management
   - Updated marker timestamp creation
 
+#### `shared_core/shared_core/dwa_remote_ros2.py`
+- **Original**: `src/dwa_remote.py` (ROS1)
+- **Changes**:
+  - Replaced `rospy` imports with `rclpy`
+  - Converted from procedural to object-oriented approach using `rclpy.node.Node`
+  - Added QoS profiles for publishers/subscribers
+  - Updated time handling to use ROS2 clock
+  - Added proper node lifecycle management
+  - Updated marker creation functions
+  - Simplified trajectory visualization
+
 #### `shared_core/shared_core/distancetime_ros2.py`
 - **Original**: `src/distancetime.py` (ROS1)
 - **Changes**:
@@ -24,6 +35,15 @@ This document summarizes all the changes made to convert the DWA shared control 
   - Modified service calls to use ROS2 async pattern
   - Updated time handling functions
   - Changed rosbag commands to use `ros2 bag`
+
+#### `shared_core/shared_core/distancetime0_ros2.py`
+- **Original**: `src/distancetime0.py` (ROS1)
+- **Changes**:
+  - Replaced `rospy` imports with `rclpy`
+  - Updated marker timestamp creation
+  - Updated time handling functions
+  - Changed rosbag commands to use `rosbag` (ROS1 format for compatibility)
+  - Updated Excel file handling for real-world data
 
 ### 2. Package Configuration Files
 
@@ -212,13 +232,15 @@ rclpy.spin_until_future_complete(node, future)
 
 ## Usage Changes
 
-### Running the Node
+### Running the Nodes
 ```bash
 # ROS1
 rosrun shared_core dwa.py --param 1
+rosrun shared_core dwa_remote.py --param 1
 
 # ROS2
 ros2 run shared_core dwa_node --param 1
+ros2 run shared_core dwa_remote_node
 ```
 
 ### Launching

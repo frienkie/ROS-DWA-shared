@@ -22,6 +22,7 @@ setup(
     entry_points={
         'console_scripts': [
             'dwa_node = shared_core.dwa_ros2:main',
+            'dwa_remote_node = shared_core.dwa_remote_ros2:main',
         ],
     },
 ) 
