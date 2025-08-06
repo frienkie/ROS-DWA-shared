@@ -43,11 +43,6 @@ args = parser.parse_args()  # 解析参数
 # =====================
 # Global State Variables
 # =====================
-# Trajectory storage for robot and human
-list_x: list = []           # Robot predicted trajectory X
-list_y: list = []           # Robot predicted trajectory Y
-list_x_human: list = []     # Human predicted trajectory X
-list_y_human: list = []     # Human predicted trajectory Y
 
 # Shared control and state
 angle_robot: float = 0.0    # Robot's current angle (for cost)
@@ -610,9 +605,7 @@ class DWANode(Node):
             self.x[4] = self.u[1]
             self.speed.linear.x = self.x[3]
             self.speed.angular.z = self.x[4]
-            simulate_trajectory(self.x, self.x[3], self.x[4], self.config, self.marker_line, list_x)
             self.line_pub.publish(self.marker_line.get_marker())
-            simulate_trajectory(self.x, human.linear.x, human.angular.z, self.config, self.marker_line_human, list_x_human)
             self.line_human_pub.publish(self.marker_line_human.get_marker())
         else:
             self.speed.linear.x = human.linear.x
@@ -643,6 +636,7 @@ class DWANode(Node):
                 distancetime_ros2.play_celebration_sound()
 
 def main(args=None):
+    global inputkey
     rclpy.init(args=args)
     
     print("which map is used now?")

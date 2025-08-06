@@ -12,6 +12,7 @@
 # Collision Avoidance (1997).
 # ROS2 Version
 
+from quopri import _Input
 import rclpy
 from rclpy.node import Node
 import math
@@ -30,6 +31,14 @@ from pynput import keyboard  # for keyboard input detect
 import simpleaudio as sa
 import threading
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+
+# 统一管理全局变量
+human = Twist()
+human_r = float("inf")
+inputkey = 0
+write = 0
+yici = 1
+human_angle = 0
 
 # 记录控制变量
 RECORD = True  # 设置为 True 时记录 rosbag 和使用 save，False 时不使用
@@ -216,44 +225,39 @@ def calc_dynamic_window(x, config):
 
     return dw
 
-list_x=[]
-list_y=[]
-line_num=0
-list_x_human=[]
-list_y_human=[]
-line_num_human=0
+# 移除未使用的全局变量
 
-def show_trajectory(xinit, v, y, config):
-    global line_num
+def simulate_trajectory(
+    xinit,
+    v,
+    y,
+    config,
+    marker_line=None,
+    out_list=None
+):
+    """
+    Simulate and record a predicted trajectory (robot or human).
+    Optionally, add points to a MarkerLine for visualization.
+    Stores trajectory in out_list if provided.
+    Returns the number of points in the trajectory.
+    """
     x = np.array(xinit)
     time = 0
-    list_x.clear()
-    list_y.clear()
-
+    if out_list is not None:
+        out_list.clear()
+    if marker_line:
+        marker_line.clear()
     while time <= config.showpredict_time:
-        # store each motion model along a trajectory
         x = motion(x, [v, y], config.dt)
-        list_x.append(x[0])
-        list_y.append(x[1])
-        time += config.dt # next sample
-    line_num=len(list_x)
+        if out_list is not None:
+            out_list.append(x[0])
+        if marker_line:
+            marker_line.add_point(x[0], x[1])
+        time += config.dt
+    if out_list is not None:
+        return len(out_list)
+    return 0
 
-def show_trajectory_human(xinit, v, y, config):
-    global line_num_human
-    x = np.array(xinit)
-    time = 0
-    list_x_human.clear()
-    list_y_human.clear()
-
-    while time <= config.showpredict_time:
-        # store each motion model along a trajectory
-        x = motion(x, [v, y], config.dt)
-        list_x_human.append(x[0])
-        list_y_human.append(x[1])
-        time += config.dt # next sample
-    line_num_human=len(list_x_human)
-
-angle_robot=0.0
 # Calculate a trajectory sampled across a prediction time
 def calc_trajectory(xinit, v, y, config):
     x = np.array(xinit)
@@ -309,8 +313,8 @@ def calc_final_input(x, u, dw, config, ob):
                 max_cost = final_cost
                 max_u = [v, w]
 
-    show_trajectory(xinit, max_u[0], max_u[1], config)
-    show_trajectory_human(xinit, human.linear.x, human.angular.z, config)
+    simulate_trajectory(xinit, max_u[0], max_u[1], config)
+    simulate_trajectory(xinit, human.linear.x, human.angular.z, config)
     return max_u
 
 # Calculate obstacle cost inf: collision, 0:free
@@ -360,9 +364,6 @@ def atGoal(config):
         <= config.goal_radius:
         return 1
     return 0
-
-human_angle=0
-yici=1
 
 def share1(vel_msg,config):# human command get 获取人类指令
     global human
@@ -422,70 +423,6 @@ class MarkerLine:
         """Return the underlying Marker object for publishing."""
         return self.marker
 
-def line(num):
-    """Create line marker for robot trajectory"""
-    marker = Marker()
-    marker.header.frame_id = "odom"
-    marker.type = Marker.LINE_STRIP
-    marker.action = Marker.ADD
-    marker.scale.x = 0.1
-    marker.scale.y = 0.1
-    marker.scale.z = 0.1
-    marker.color.a = 1.0
-    marker.color.r = 0.0
-    marker.color.g = 1.0
-    marker.color.b = 0.0
-    marker.pose.orientation.x = 0.0
-    marker.pose.orientation.y = 0.0
-    marker.pose.orientation.z = 0.0
-    marker.pose.orientation.w = 1.0
-    marker.pose.position.x = 0.0
-    marker.pose.position.y = 0.0
-    marker.pose.position.z = 0.0
-
-    # marker line points
-    marker.points = []
-    for i in range(num):
-        pt = Point()
-        pt.x = list_x[i]
-        pt.y = list_y[i]
-        pt.z = 0.0
-        marker.points.append(pt)
-    
-    return marker
-
-def h_line(num):
-    """Create line marker for human trajectory"""
-    h_marker = Marker()
-    h_marker.header.frame_id = "odom"
-    h_marker.type = Marker.LINE_STRIP
-    h_marker.action = Marker.ADD
-    h_marker.scale.x = 0.1
-    h_marker.scale.y = 0.1
-    h_marker.scale.z = 0.1
-    h_marker.color.a = 1.0
-    h_marker.color.r = 0.0
-    h_marker.color.g = 0.0
-    h_marker.color.b = 1.0
-    h_marker.pose.orientation.x = 0.0
-    h_marker.pose.orientation.y = 0.0
-    h_marker.pose.orientation.z = 0.0
-    h_marker.pose.orientation.w = 1.0
-    h_marker.pose.position.x = 0.0
-    h_marker.pose.position.y = 0.0
-    h_marker.pose.position.z = 0.0
-
-    # marker line points
-    h_marker.points = []
-    for i in range(num):
-        pt = Point()
-        pt.x = list_x_human[i]
-        pt.y = list_y_human[i]
-        pt.z = 0.0
-        h_marker.points.append(pt)
-    
-    return h_marker
-
 def change_goal(config,n):
     global yici
     if n==0:
@@ -508,11 +445,6 @@ def change_goal(config,n):
         config.goalY=6.0
     if yici==1:
         print(n)
-
-human=Twist()
-human_r=float("inf")
-inputkey=0
-write=0
 
 def signal_handler(signal, frame):
     print("\nCtrl + C  is pressed,exit sys")
@@ -544,7 +476,6 @@ class DWARemoteNode(Node):
             history=HistoryPolicy.KEEP_LAST,
             depth=10
         )
-        
         # Initialize configuration and obstacles
         self.config = Config()
         self.obs = Obstacles()
@@ -584,6 +515,10 @@ class DWARemoteNode(Node):
         # Start keyboard listener
         threading.Thread(target=listen_key, daemon=True).start()
         
+        # Initialize MarkerLine objects for trajectory visualization
+        self.marker_line = MarkerLine()
+        self.marker_line_human = MarkerLine(color=(0.0, 0.0, 1.0, 1.0)) # Blue for human
+        
         self.get_logger().info("DWA Remote Node initialized")
 
     def share1_callback(self, msg):
@@ -603,20 +538,17 @@ class DWARemoteNode(Node):
             self.x[4] = self.u[1]
             self.speed.linear.x = self.x[3]
             self.speed.angular.z = self.x[4]
-            
-            # Publish trajectory markers
-            robot_marker = line(line_num)
-            self.line_pub.publish(robot_marker)
-            human_marker = h_line(line_num_human)
-            self.line_human_pub.publish(human_marker)
+            # 轨迹可视化，和dwa_ros2.py一致，使用MarkerLine对象
+            self.line_pub.publish(self.marker_line.get_marker())
+            self.line_human_pub.publish(self.marker_line_human.get_marker())
         else:
             # if 0 then do directly
             self.speed.linear.x = human.linear.x
             self.speed.angular.z = human.angular.z
-            
+        
         if yici > 0:
             self.marker_pub.publish(distancetime0_ros2.markers)
-            
+        
         self.cmd_vel_pub.publish(self.speed)
         
         min_d_msg = Float32()
@@ -640,12 +572,20 @@ class DWARemoteNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    
+    global inputkey
     print(__file__ + " start!!")
     print(f"RECORD mode: {RECORD}")
     print(f"Parameter value: {param_value}")
-    inputkey = 1
-    
+    print("human is 0,share is 1")
+    inputs = input()
+    if inputs == "0":
+        inputkey = 0
+    elif inputs == "1":
+        inputkey = 1
+    else:
+        print("input error,run as human")
+        inputkey = 0
+
     node = DWARemoteNode()
     
     try:
