@@ -158,7 +158,7 @@ def stop_rosbag():
 
 
 
-def save(time,distance,n,m):# n is direct switch,m is para
+def save(time,distance,n):# n is direct switch,m is para
     file_name = "/home/frienkie/result/data_real.xlsx"
 
     # 检查文件是否存在
@@ -199,7 +199,7 @@ def save(time,distance,n,m):# n is direct switch,m is para
                 break
         sheet.cell(row=row, column=7, value=formatted_data1)
         sheet.cell(row=row, column=8, value=formatted_data2)
-        sheet.cell(row=row, column=14, value=m)
+        sheet.cell(row=row, column=14, value=13)
         sheet.cell(row=row, column=16, value=row-1)
     # 保存工作簿
     workbook.save(file_name)

@@ -25,14 +25,16 @@ import sys
 from pynput import keyboard  # for keyboard input detect
 import simpleaudio as sa
 import threading
-import argparse
-parser = argparse.ArgumentParser(description="设置参数")
+# import argparse
+# parser = argparse.ArgumentParser(description="设置参数")
 
 # 添加参数
-parser.add_argument("--param", type=int, required=True, help="参数值")
+# parser.add_argument("--param", type=int, required=True, help="参数值")
 
-# 解析参数
-args = parser.parse_args()
+# # 解析参数
+# args = parser.parse_args()
+
+RECORDER = True
 
 class Config():
     # simulation parameters
@@ -43,13 +45,14 @@ class Config():
         #NOTE 0.55,0.1,1.0,1.6,3.2,0.15,0.05,0.1,1.7,2.4,0.1,3.2,0.18
         self.max_speed = 0.20  # [m/s]
         self.min_speed = 0.0  # [m/s]
+        # self.max_yawrate = 1.2  # [rad/s]
         self.max_yawrate = 0.6  # [rad/s]
-
         self.max_accel = 2.5  # [m/ss]
         self.max_dyawrate = 3.2  # [rad/ss]
         ##################################################33
-        self.v_reso = 0.04  # [m/s]
-        self.yawrate_reso = 0.04  # [rad/s]
+        self.v_reso = 0.05  # [m/s]
+        # self.yawrate_reso = 0.1  # [rad/s]
+        self.yawrate_reso = 0.05  # [rad/s]
         #######################################################
         self.dt = 0.4  # [s]
         self.predict_time = 2.4  # [s]
@@ -60,19 +63,19 @@ class Config():
         # self.speed_cost_gain = 1.5 
         # self.obs_cost_gain = 1.0
         # self.to_human_cost_gain =0.5
-        if args.param == 1:
-            self.to_human_cost_gain = 1.0 #lower = detour
-            self.speed_cost_gain = 2.0 #lower = faster
-            self.obs_cost_gain = 1.0 #lower z= fearless
-        if args.param == 2:
-            self.to_human_cost_gain = 1.0 #lower = detour
-            self.speed_cost_gain = 1.0 #lower = faster
-            self.obs_cost_gain = 2.0 #lower z= fearless
-        if args.param == 3:
-            self.to_human_cost_gain = 2.0 #lower = detour
-            self.speed_cost_gain = 1.0 #lower = faster
-            self.obs_cost_gain = 1.0 #lower z= fearless
-        #############################
+        # if args.param == 1:
+        #     self.to_human_cost_gain = 1.0 #lower = detour
+        #     self.speed_cost_gain = 2.0 #lower = faster
+        #     self.obs_cost_gain = 1.0 #lower z= fearless
+
+        self.to_human_cost_gain = 1.0 #lower = detour
+        self.speed_cost_gain = 1.0 #lower = faster
+        self.obs_cost_gain = 2.0 #lower z= fearless
+        # if args.param == 3:
+        #     self.to_human_cost_gain = 2.0 #lower = detour
+        #     self.speed_cost_gain = 1.0 #lower = faster
+        #     self.obs_cost_gain = 1.0 #lower z= fearless
+        # #############################
         self.robot_radius = 0.12  # [m]
         self.x = 0.0
         self.y = 0.0
@@ -174,7 +177,7 @@ class Obstacles():
         if self.pattern==1:
             self.obst= self.obs1 | self.obst
 
-        if len(self.obs_last) - len(self.obst)>40:
+        if len(self.obs_last) - len(self.obst)>50:
             self.obst=self.obs_last | self.obst
         else:
             self.obs_last=self.obst.copy()
@@ -555,15 +558,16 @@ def main():
     global yici
     global write
     print(__file__ + " start!!")
-    # sprint("human is 0,share is 1")
-    inputkey=1
-    # if inputs=="0":
-    #         inputkey=0
-    # elif inputs=="1":
-    #         inputkey=1
-    # else:
-    #         rospy.loginfo("input error,run as human")
-    #         inputkey = 0
+    print("human is 0,share is 1")
+    #inputkey=1
+    inputs=input()
+    if inputs=="0":
+            inputkey=0
+    elif inputs=="1":
+            inputkey=1
+    else:
+            rospy.loginfo("input error,run as human")
+            inputkey = 0
 
     # robot specification
     # rand=RandomNumberGenerator()
@@ -599,9 +603,10 @@ def main():
     # initial linear and angular velocities
     u = np.array([0.0, 0.0])
 
-    file_value=start_rosbag()
-    print("You can press y to stop and save rosbag when you need.")
-    start_time = rospy.get_time()
+    if RECORDER==True:
+        file_value=start_rosbag()
+        print("You can press y to stop and save rosbag when you need.")
+        start_time = rospy.get_time()
     # runs until terminated externally
     while not rospy.is_shutdown():
 
@@ -627,21 +632,21 @@ def main():
             marker_pub.publish(markers)
         pub.publish(speed)
         x_value_pub.publish(obs.minx)
+        if RECORDER==True:
+            if write==1 or config.x>2.8:
 
-        if write==1 or config.x>2.0:
-
-            if yici>0:
-                print("YOU have arrive the goal point")
-                print("run time: %.2f s" % (rospy.get_time()-start_time))
-                print("distance in this time: %.2f m" % config.distance)
-                save(start_time,config.distance,inputkey,args.param)
-                # with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
-                #     json.dump(list(config.xy), f)
-                stop_rosbag()
-                # change_goal(config,rand.get_next())
-                # goal_sphere(config)
-                play_celebration_sound()
-                yici=0
+                if yici>0:
+                    print("YOU have arrive the goal point")
+                    print("run time: %.2f s" % (rospy.get_time()-start_time))
+                    print("distance in this time: %.2f m" % config.distance)
+                    save(start_time,config.distance,inputkey)
+                    # with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
+                    #     json.dump(list(config.xy), f)
+                    stop_rosbag()
+                    # change_goal(config,rand.get_next())
+                    # goal_sphere(config)
+                    play_celebration_sound()
+                    yici=0
             
         config.r.sleep()
 
