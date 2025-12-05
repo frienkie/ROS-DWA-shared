@@ -90,12 +90,12 @@ class GazeboObsReader:
         self.moving_future = self.predict_future(self.obs_info)
 
         # 输出测试
-        # rospy.loginfo_throttle(1.0,
-        #     "\nObs info:\n{}\n\nMoving future shape: {}\n".format(
-        #         self.obs_info,
-        #         self.moving_future.shape
-        #     )
-        # )
+        rospy.loginfo_throttle(1.0,
+            "\nObs info:\n{}\n\nMoving future shape: {}\n".format(
+                self.obs_info,
+                self.moving_future.shape
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -16,10 +16,10 @@ from geometry_msgs.msg import Twist, Point
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
-from std_msgs.msg import Float32
-from visualization_msgs.msg import Marker
-from detectmove import GazeboObsReader
-import numpy as np
+from std_msgs.msg import Float32, Header
+from visualization_msgs.msg import Marker, MarkerArray
+from distancetime0 import *
+import json
 import signal
 import sys
 from pynput import keyboard  # for keyboard input detect
@@ -43,20 +43,19 @@ class Config():
         # robot parameter
         #NOTE good params:
         #NOTE 0.55,0.1,1.0,1.6,3.2,0.15,0.05,0.1,1.7,2.4,0.1,3.2,0.18
-        self.max_speed = 0.25  # [m/s]
+        self.max_speed = 0.20  # [m/s]
         self.min_speed = 0.0  # [m/s]
         # self.max_yawrate = 1.2  # [rad/s]
-        self.max_yawrate = 1.0  # [rad/s]
+        self.max_yawrate = 0.6  # [rad/s]
         self.max_accel = 2.5  # [m/ss]
         self.max_dyawrate = 3.2  # [rad/ss]
         ##################################################33
-        self.v_reso = 0.05  # [m/s]
+        self.v_reso = 0.1  # [m/s]
         # self.yawrate_reso = 0.1  # [rad/s]
-        self.yawrate_reso = 0.05  # [rad/s]
+        self.yawrate_reso = 0.1 # [rad/s]
         #######################################################
         self.dt = 0.4  # [s]
-        self.dtsys = 0.05
-        self.predict_time = 15.0  # [s]
+        self.predict_time = 2.4  # [s]
         self.showpredict_time = 3.0  # [s]
         self.showdt = 1.0
         self.goal_radius=0.4
@@ -71,14 +70,13 @@ class Config():
 
         self.to_human_cost_gain = 1.0 #lower = detour
         self.speed_cost_gain = 1.0 #lower = faster
-        self.obs_cost_gain = 1.0 #lower z= fearless
+        self.obs_cost_gain = 2.0 #lower z= fearless
         # if args.param == 3:
         #     self.to_human_cost_gain = 2.0 #lower = detour
         #     self.speed_cost_gain = 1.0 #lower = faster
         #     self.obs_cost_gain = 1.0 #lower z= fearless
         # #############################
-        self.robot_radius = 0.22  # [m]
-        self.obs_radius =0.2
+        self.robot_radius = 0.12  # [m]
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
@@ -107,7 +105,14 @@ class Config():
             euler_from_quaternion ([rot_q.x,rot_q.y,rot_q.z,rot_q.w])
         self.th = theta
         self.xy.add((self.x,self.y))
-
+        if self.first_time:  # 只在第一次执行
+            self.prev_x = self.x
+            self.prev_y = self.y
+            self.prev_x0 =self.x
+            self.prev_y0 =self.y
+            self.first_time = False  # 之后不会再执行
+        self.distance0=math.sqrt((self.x - self.prev_x0)**2 + (self.y - self.prev_y0)**2)
+        odom_callback(self)
 
 
 
@@ -178,6 +183,25 @@ class Obstacles():
             self.obs_last=self.obst.copy()
 
 
+    def assignObs1(self, msg, config):
+        self.minx=3.5
+        for i in range(len(msg.ranges)):
+            # if msg.ranges[i] == float('Inf'):
+            if msg.ranges[i]>config.maxdect or msg.ranges[i] == float('Inf'):
+                distance=config.maxdect
+                # scan_range.append(3.5)
+
+            elif msg.ranges[i]<config.mindect:
+                distance=config.maxdect
+
+            elif np.isnan(msg.ranges[i]):
+                # scan_range.append(0)
+                distance = 0.12
+
+            else:
+                distance = msg.ranges[i]
+            if self.minx>distance:
+                self.minx=distance
 
         
 # Model to determine the expected position of the robot after moving along trajectory
@@ -215,6 +239,7 @@ line_num=0
 list_x_human=[]
 list_y_human=[]
 line_num_human=0
+trajectory_markers = []  # 存储所有轨迹的marker
 
 
 def show_trajectory(xinit, v, y, config):
@@ -279,14 +304,17 @@ def calc_angle_fromtraj(v, y, config):
 
 
 # Calculate trajectory, costings, and return velocities to apply to robot
-def calc_final_input(x, u, dw, config, ob,readob):
+def calc_final_input(x, u, dw, config, ob):
     # global list_x,list_y,line_num
+    global trajectory_markers
     xinit = x[:]######
     max_cost = 0.0
     max_u = u
     max_u[0] = 0.0 #no way can be chosen
     max_u[1] = human.angular.z
     global angle_robot
+    trajectory_markers = []  # 清空之前的轨迹marker
+    marker_id = 0
     # evaluate all trajectory with sampled input in dynamic window
     for v in np.arange(dw[0], dw[1]+config.v_reso, config.v_reso):
         for w in np.arange(dw[2], dw[3]+config.yawrate_reso, config.yawrate_reso):
@@ -298,7 +326,84 @@ def calc_final_input(x, u, dw, config, ob,readob):
 
             speed_cost = config.speed_cost_gain *(1-abs(human.linear.x - v)/(config.max_speed-config.min_speed))
 
-            ob_cost = calc_obstacle_cost(traj, ob, config,readob) * config.obs_cost_gain
+            ob_cost = calc_obstacle_cost(traj, ob, config) * config.obs_cost_gain
+
+            # 只显示v大于等于0.15时的marker
+            if v >= 0.15:
+                # 为每个轨迹创建marker
+                traj_marker = Marker()
+                # 确保header正确初始化
+                traj_marker.header = Header()
+                traj_marker.header.frame_id = "odom"
+                traj_marker.header.stamp = rospy.Time.now()
+                traj_marker.ns = "trajectories"
+                traj_marker.type = traj_marker.LINE_LIST  # 使用LINE_LIST来实现虚线效果
+                traj_marker.action = traj_marker.ADD
+                traj_marker.id = marker_id
+                marker_id += 1
+                
+                # 设置marker属性 - 线条宽度减半
+                traj_marker.scale.x = 0.025  # 原来0.05，现在减半
+                traj_marker.scale.y = 0.025
+                traj_marker.scale.z = 0.025
+                traj_marker.color.a = 1.0
+                traj_marker.pose.orientation.x = 0.0
+                traj_marker.pose.orientation.y = 0.0
+                traj_marker.pose.orientation.z = 0.0
+                traj_marker.pose.orientation.w = 1.0
+                traj_marker.pose.position.x = 0.0
+                traj_marker.pose.position.y = 0.0
+                traj_marker.pose.position.z = 0.0
+                
+                # 设置所有marker为黄色
+                traj_marker.color.r = 1.0
+                traj_marker.color.g = 1.0
+                traj_marker.color.b = 0.0
+                
+                # 添加轨迹点 - 使用LINE_LIST创建虚线效果
+                # LINE_LIST需要成对添加点，每对点形成一条线段
+                traj_marker.points = []
+                dash_length = 0.1  # 虚线段的长度
+                gap_length = 0.05  # 虚线之间的间隔
+                
+                if len(traj) > 1:
+                    for i in range(len(traj) - 1):
+                        # 计算当前点到下一个点的距离
+                        dx = traj[i+1, 0] - traj[i, 0]
+                        dy = traj[i+1, 1] - traj[i, 1]
+                        dist = math.sqrt(dx**2 + dy**2)
+                        
+                        if dist > 0:
+                            # 归一化方向向量
+                            dx_norm = dx / dist
+                            dy_norm = dy / dist
+                            
+                            # 沿着路径创建虚线
+                            current_dist = 0.0
+                            while current_dist < dist:
+                                # 虚线段的起点
+                                start_point = Point()
+                                start_point.x = traj[i, 0] + dx_norm * current_dist
+                                start_point.y = traj[i, 1] + dy_norm * current_dist
+                                start_point.z = 0.0
+                                
+                                # 虚线段的终点
+                                end_dist = min(current_dist + dash_length, dist)
+                                end_point = Point()
+                                end_point.x = traj[i, 0] + dx_norm * end_dist
+                                end_point.y = traj[i, 1] + dy_norm * end_dist
+                                end_point.z = 0.0
+                                
+                                # 添加一对点形成一条线段
+                                traj_marker.points.append(start_point)
+                                traj_marker.points.append(end_point)
+                                
+                                # 移动到下一个虚线段的起点（跳过间隔）
+                                current_dist += dash_length + gap_length
+                
+                # 只有当points不为空时才添加marker（LINE_LIST需要至少一对点）
+                if len(traj_marker.points) > 0 and len(traj_marker.points) % 2 == 0:
+                    trajectory_markers.append(traj_marker)
 
             if np.isinf(ob_cost):
                 continue
@@ -320,17 +425,10 @@ def calc_final_input(x, u, dw, config, ob,readob):
 
 
 # Calculate obstacle cost inf: collision, 0:free
-def calc_obstacle_cost(traj, ob, config,readob):
+def calc_obstacle_cost(traj, ob, config):
     skip_n = 1
     minr = config.maxdect
-    moving_future = readob.moving_future
-    obs_info=readob.obs_info
-    # 安全检查：如果 moving_future 为 None 或为空，则跳过移动障碍物检查
-    if moving_future is None or moving_future.shape[0] == 0:
-        num_obs = 0
-    else:
-        num_obs = moving_future.shape[0]
-
+    
     # Loop through every obstacle in set and calc Pythagorean distance
     # Use robot radius to determine if collision
     for ii in range(1, len(traj[:, 1]), skip_n):
@@ -348,24 +446,10 @@ def calc_obstacle_cost(traj, ob, config,readob):
             if minr >= r:
                 minr = r
 
-    for obs_i in range(num_obs):
-        mob_traj = moving_future[obs_i]    # shape = (num_steps, 2)
-        mob_radius = obs_info[obs_i, 4]    # 半径
-
-        for t_i in range(mob_traj.shape[0]):
-            dx = traj[t_i, 0] - mob_traj[t_i, 0]
-            dy = traj[t_i, 1] - mob_traj[t_i, 1]
-            dist = np.hypot(dx, dy)-mob_radius
-
-            if dist <= config.robot_radius:
-                return float("-Inf")
-                # print(f"Collision at obs {obs_i}, timestep {t_i}")
-            if minr>dist:
-                minr=dist
 
     return (minr-config.robot_radius)/(config.maxdect-config.robot_radius)
 
-############################################################################
+############################################################################333
 def calc_to_human_cost( v, w,config,traj,n):
     global human_angle
     # elif n==3:# final point distance method
@@ -381,12 +465,12 @@ def calc_to_human_cost( v, w,config,traj,n):
 ##################################################################################
 
 # Begin DWA calculations
-def dwa_control(x, u, config, ob,readob):
+def dwa_control(x, u, config, ob):
     # Dynamic Window control
 
     dw = calc_dynamic_window(x, config)
 
-    u = calc_final_input(x, u, dw, config, ob,readob)
+    u = calc_final_input(x, u, dw, config, ob)
 
     return u
 
@@ -423,81 +507,6 @@ def share1(vel_msg,config):# human command get 获取人类指令
 
 
 
-
-
-marker =  Marker()
-marker.header.frame_id = "odom"
-marker.type = marker.LINE_STRIP
-marker.action = marker.ADD
-    # marker scale
-marker.scale.x = 0.1
-marker.scale.y = 0.1
-marker.scale.z = 0.1
-
-    # marker color #green
-marker.color.a = 1.0
-marker.color.r = 0.0
-marker.color.g = 1.0
-marker.color.b = 0.0
-
-    # marker orientaiton
-marker.pose.orientation.x = 0.0
-marker.pose.orientation.y = 0.0
-marker.pose.orientation.z = 0.0
-marker.pose.orientation.w = 1.0
-
-    # marker position  ###no influence in line
-marker.pose.position.x = 0.0
-marker.pose.position.y = 0.0
-marker.pose.position.z = 0.0
-
-h_marker =  Marker()
-h_marker.header.frame_id = "odom"
-h_marker.type = h_marker.LINE_STRIP
-h_marker.action = h_marker.ADD
-    # marker scale
-h_marker.scale.x = 0.1
-h_marker.scale.y = 0.1
-h_marker.scale.z = 0.1
-
-    # marker color #green
-h_marker.color.a = 1.0
-h_marker.color.r = 0.0
-h_marker.color.g = 0.0
-h_marker.color.b = 1.0
-
-    # marker orientaiton
-h_marker.pose.orientation.x = 0.0
-h_marker.pose.orientation.y = 0.0
-h_marker.pose.orientation.z = 0.0
-h_marker.pose.orientation.w = 1.0
-
-    # marker position  ###no influence in line
-h_marker.pose.position.x = 0.0
-h_marker.pose.position.y = 0.0
-h_marker.pose.position.z = 0.0
-
-def line(num):
-    # marker line points
-    marker.points = []
-
-    for i in range(num):
-        exec(f"line_point{i} = Point()") 
-        exec(f"line_point{i}.x = list_x[{i}]")
-        exec(f"line_point{i}.y = list_y[{i}]")
-        exec(f"line_point{i}.z = 0.0")
-        exec(f"marker.points.append(line_point{i})")
-
-def h_line(num):
-    # marker line points
-    h_marker.points = []
-
-    for i in range(num):
-        exec(f"line_point{i} = Point()") 
-        exec(f"line_point{i}.x = list_x_human[{i}]")
-        exec(f"line_point{i}.y = list_y_human[{i}]")
-        exec(f"line_point{i}.z = 0.0")
-        exec(f"h_marker.points.append(line_point{i})")
 
 
 def change_goal(config,n):
@@ -571,7 +580,6 @@ def main():
     config = Config()
     # position of obstacles
     obs = Obstacles()
-    readob = GazeboObsReader(config)
     # if chizu=="4":
     #     config.robot_radius=0.106
     #     obs.pattern=1
@@ -580,6 +588,7 @@ def main():
     threading.Thread(target=listen_key, daemon=True).start()
 
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
+    subLaser1 = rospy.Subscriber("/scan", LaserScan, obs.assignObs1, config)
     subLaser = rospy.Subscriber("/filtered_scan", LaserScan, obs.assignObs, config)
 
     sub_hum = rospy.Subscriber("/cmd_vel_human",Twist,share1,config,queue_size=1)
@@ -588,9 +597,8 @@ def main():
 
     x_value_pub = rospy.Publisher('/min_d', Float32, queue_size = 1)
     # sub_obs = rospy.Subscriber("/gazebo/base_collision",Contact,StringMessageCounter.callbackobs,queue_size=10)
-    pub_line = rospy.Publisher('~line_list', Marker, queue_size=10)
-    pub_line_human = rospy.Publisher('~line_list_human', Marker, queue_size=10)
     marker_pub = rospy.Publisher('visualization_marker', Marker, queue_size=10)
+    marker_array_pub = rospy.Publisher('visualization_marker_array', MarkerArray, queue_size=1)
     
     speed = Twist()
     # change_goal(config,rand.get_next())
@@ -600,15 +608,15 @@ def main():
     # initial linear and angular velocities
     u = np.array([0.0, 0.0])
 
-    # if RECORDER==True:
-    #     file_value=start_rosbag()
-    #     print("You can press y to stop and save rosbag when you need.")
-    #     start_time = rospy.get_time()
+    if RECORDER==True:
+        file_value=start_rosbag()
+        print("You can press y to stop and save rosbag when you need.")
+        start_time = rospy.get_time()
     # runs until terminated externally
     while not rospy.is_shutdown():
 
         if (inputkey== 1):
-            u = dwa_control(x, u, config, obs.obst,readob)
+            u = dwa_control(x, u, config, obs.obst)
             x[0] = config.x
             x[1] = config.y
             x[2] = config.th
@@ -616,29 +624,55 @@ def main():
             x[4] = u[1]
             speed.linear.x = x[3]
             speed.angular.z = x[4]
-            line(line_num)
-            pub_line.publish(marker)
-            h_line(line_num_human)
-            pub_line_human.publish(h_marker)
+            # 清空之前的marker
+            delete_marker = Marker()
+            delete_marker.header = Header()
+            delete_marker.header.frame_id = "odom"
+            delete_marker.header.stamp = rospy.Time.now()
+            delete_marker.ns = "trajectories"  # 只删除trajectories命名空间的marker
+            delete_marker.action = delete_marker.DELETEALL
+            marker_pub.publish(delete_marker)
+            # 使用MarkerArray批量发布所有轨迹的marker，提高效率
+            if len(trajectory_markers) > 0:
+                marker_array = MarkerArray()
+                current_time = rospy.Time.now()
+                for traj_marker in trajectory_markers:
+                    # 确保header正确设置
+                    if not hasattr(traj_marker.header, 'frame_id') or not traj_marker.header.frame_id:
+                        if not hasattr(traj_marker, 'header') or traj_marker.header is None:
+                            traj_marker.header = Header()
+                        traj_marker.header.frame_id = "odom"
+                    traj_marker.header.stamp = current_time
+                    # 确保points不为空且数量为偶数（LINE_LIST需要成对点）
+                    if len(traj_marker.points) > 0 and len(traj_marker.points) % 2 == 0:
+                        marker_array.markers.append(traj_marker)
+                # 只有当marker_array中有marker时才发布
+                if len(marker_array.markers) > 0:
+                    marker_array_pub.publish(marker_array)
         
         else:
             # if 0 then do directly
             speed.linear.x = human.linear.x
             speed.angular.z = human.angular.z
-        # if yici>0:
-        #     marker_pub.publish(markers)
+        if yici>0:
+            marker_pub.publish(markers)
         pub.publish(speed)
         x_value_pub.publish(obs.minx)
-        if write==1:
-            if yici>0:
-                print("YOU have arrive the goal point")
+        if RECORDER==True:
+            if write==1 or config.x>2.8:
 
-                # with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
-                #     json.dump(list(config.xy), f)
-
-                # change_goal(config,rand.get_next())
-                # goal_sphere(config)
-                yici=0
+                if yici>0:
+                    print("YOU have arrive the goal point")
+                    print("run time: %.2f s" % (rospy.get_time()-start_time))
+                    print("distance in this time: %.2f m" % config.distance)
+                    save(start_time,config.distance,inputkey)
+                    # with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
+                    #     json.dump(list(config.xy), f)
+                    stop_rosbag()
+                    # change_goal(config,rand.get_next())
+                    # goal_sphere(config)
+                    play_celebration_sound()
+                    yici=0
             
         config.r.sleep()
 

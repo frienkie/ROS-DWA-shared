@@ -18,7 +18,7 @@ from sensor_msgs.msg import LaserScan
 from tf.transformations import euler_from_quaternion
 from std_msgs.msg import Float32
 from visualization_msgs.msg import Marker
-from detectmove import GazeboObsReader
+from cal_ctime import *
 import numpy as np
 import signal
 import sys
@@ -79,6 +79,7 @@ class Config():
         # #############################
         self.robot_radius = 0.22  # [m]
         self.obs_radius =0.2
+        self.cube_half_size=1.0
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
@@ -100,12 +101,14 @@ class Config():
     def assignOdomCoords(self, msg):
         # X- and Y- coords and pose of robot fed back into the robot config
         
-        self.x = msg.pose.pose.position.x
-        self.y = msg.pose.pose.position.y
+        # 保留三位小数精度
+        self.x = round(msg.pose.pose.position.x, 3)
+        self.y = round(msg.pose.pose.position.y, 3)
         rot_q = msg.pose.pose.orientation
         (roll,pitch,theta) = \
             euler_from_quaternion ([rot_q.x,rot_q.y,rot_q.z,rot_q.w])
-        self.th = theta
+        # 保留三位小数精度
+        self.th = round(theta, 3)
         self.xy.add((self.x,self.y))
 
 
@@ -279,7 +282,7 @@ def calc_angle_fromtraj(v, y, config):
 
 
 # Calculate trajectory, costings, and return velocities to apply to robot
-def calc_final_input(x, u, dw, config, ob,readob):
+def calc_final_input(x, u, dw, config, ob,cube):
     # global list_x,list_y,line_num
     xinit = x[:]######
     max_cost = 0.0
@@ -292,19 +295,20 @@ def calc_final_input(x, u, dw, config, ob,readob):
         for w in np.arange(dw[2], dw[3]+config.yawrate_reso, config.yawrate_reso):
             w = np.round(w, 2)
 
-            traj = calc_trajectory(xinit, v, w, config)
+            # traj = calc_trajectory(xinit, v, w, config)
 
-            to_human_cost = (1-calc_to_human_cost(v,w,config,traj,4)) * config.to_human_cost_gain
+            to_human_cost = (1-calc_to_human_cost(v,w,config,4)) * config.to_human_cost_gain
 
             speed_cost = config.speed_cost_gain *(1-abs(human.linear.x - v)/(config.max_speed-config.min_speed))
 
-            ob_cost = calc_obstacle_cost(traj, ob, config,readob) * config.obs_cost_gain
+            # ob_cost = calc_obstacle_cost(traj, ob, config,readob) * config.obs_cost_gain
 
-            if np.isinf(ob_cost):
+            ob_movecost=(cube,config.x, config.y, config.th, v, w, config.predict_time)
+
+            if ob_movecost==0:
                 continue
 
-            final_cost = to_human_cost + speed_cost + ob_cost
-            
+            final_cost = to_human_cost + speed_cost + ob_movecost/config.predict_time
 
             # search minimum trajectory     ##最大代价
             if max_cost <= final_cost:
@@ -366,11 +370,9 @@ def calc_obstacle_cost(traj, ob, config,readob):
     return (minr-config.robot_radius)/(config.maxdect-config.robot_radius)
 
 ############################################################################
-def calc_to_human_cost( v, w,config,traj,n):
+def calc_to_human_cost( v, w,config,n):
     global human_angle
-    # elif n==3:# final point distance method
-    #     xr,yr=traj[-1,0],traj[-1,1]
-    #     cost=math.sqrt((xh-xr)**2 + (yh-yr)**2)/(2*(config.max_speed-config.min_speed)*config.showpredict_time)
+
     if n==4:# w minus directly
         robot_angle=w
         cost = abs(human_angle-robot_angle)/(config.max_yawrate*2)
@@ -381,12 +383,12 @@ def calc_to_human_cost( v, w,config,traj,n):
 ##################################################################################
 
 # Begin DWA calculations
-def dwa_control(x, u, config, ob,readob):
+def dwa_control(x, u, config, ob,cube):
     # Dynamic Window control
 
     dw = calc_dynamic_window(x, config)
 
-    u = calc_final_input(x, u, dw, config, ob,readob)
+    u = calc_final_input(x, u, dw, config, ob,cube)
 
     return u
 
@@ -571,7 +573,7 @@ def main():
     config = Config()
     # position of obstacles
     obs = Obstacles()
-    readob = GazeboObsReader(config)
+    cube=CubeReader(config)
     # if chizu=="4":
     #     config.robot_radius=0.106
     #     obs.pattern=1
@@ -608,7 +610,7 @@ def main():
     while not rospy.is_shutdown():
 
         if (inputkey== 1):
-            u = dwa_control(x, u, config, obs.obst,readob)
+            u = dwa_control(x, u, config, obs.obst,cube)
             x[0] = config.x
             x[1] = config.y
             x[2] = config.th
