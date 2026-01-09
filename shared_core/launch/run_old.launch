@@ -1,0 +1,10 @@
+<launch>
+    <!-- 运行普通 python 脚本 -->
+    <node pkg="shared_core" type="movetest.py" name="movetest" output="screen" />
+
+    <!-- 运行ROS节点 -->
+    <node pkg="shared_core" type="dwa_simwaffi.py"
+        name="dwa_node"
+        output="screen"
+        launch-prefix="bash -c 'sleep 3.5; $0 $@'" />
+</launch>

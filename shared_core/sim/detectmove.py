@@ -14,7 +14,7 @@ class GazeboObsReader:
     def __init__(self, config):
         self.config = config
 
-        self.ignore_prefix = ["turtlebot3", "ground_plane"]
+        self.ignore_prefix = ["turtlebot3", "ground_plane","wall"]
 
         self.obs_info = np.zeros((0, 6))  # x, y, vx, vy, radius, id
         self.moving_future = None        # 保存 num_obs × num_steps × 2
@@ -33,9 +33,10 @@ class GazeboObsReader:
 
             x = poses[i].position.x
             y = poses[i].position.y
-            vx = twists[i].linear.x
-            vy = twists[i].linear.y
-
+            # vx = twists[i].linear.x
+            # vy = twists[i].linear.y
+            vx = -1.0
+            vy = 0.0
             obs_list.append([x, y, vx, vy, self.config.obs_radius, id_counter])
             id_counter += 1
 
@@ -90,12 +91,12 @@ class GazeboObsReader:
         self.moving_future = self.predict_future(self.obs_info)
 
         # 输出测试
-        rospy.loginfo_throttle(1.0,
-            "\nObs info:\n{}\n\nMoving future shape: {}\n".format(
-                self.obs_info,
-                self.moving_future.shape
-            )
-        )
+        # rospy.loginfo_throttle(1.0,
+        #     "\nObs info:\n{}\n\nMoving future shape: {}\n".format(
+        #         self.obs_info,
+        #         self.moving_future.shape
+        #     )
+        # )
 
 
 if __name__ == "__main__":

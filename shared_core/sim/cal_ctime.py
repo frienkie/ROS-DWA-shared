@@ -11,14 +11,14 @@ T=20.0
 
 class Config:
     def __init__(self):
-        self.robot_radius = 0.2         # 机器人半径
-        self.cube_half_size = 0.5       # 原始立方体半边长
+        self.robot_radius = 0.22         # 机器人半径
+        self.cube_half_size =0.1        # 原始立方体半边长
 
 class CubeReader:
     def __init__(self, config):
 
         self.config = config
-        self.ignore_prefix = ["turtlebot3", "ground_plane"]
+        self.ignore_prefix = ["turtlebot3", "ground_plane","wall"]
         self.data = None        # None 表示没有任何障碍物信息
         rospy.Subscriber("/gazebo/model_states", ModelStates, self.callback)
 
@@ -88,8 +88,8 @@ class CubeReader:
             # vx, vy（统一保留小数点后三位）
             # vx = round(twist.linear.x, 3)
             # vy = round(twist.linear.y, 3)
-            vx = 0.0
-            vy = -1.0
+            vx = -1.0
+            vy = 0.0
 
             # 存储格式：[index, p1, p2, p3, p4, vx, vy]
             row = [obs_index] + vertices + [vx, vy]
@@ -97,6 +97,27 @@ class CubeReader:
 
             obs_index += 1
 
+        # half_size = 2.5
+        # vx = 0.0
+        # vy = 0.0
+
+        # def make_square(cx, cy, h):
+        #     return [
+        #         (round(cx - h, 3), round(cy - h, 3)),
+        #         (round(cx - h, 3), round(cy + h, 3)),
+        #         (round(cx + h, 3), round(cy + h, 3)),
+        #         (round(cx + h, 3), round(cy - h, 3))
+        #     ]
+
+        # # 障碍物1：中心 (0, 2.8)
+        # v1 = make_square(0.0, 2.8, half_size+self.config.robot_radius)
+        # new_data.append([obs_index] + v1 + [vx, vy])
+        # obs_index += 1
+
+        # # 障碍物2：中心 (0, -5.9)
+        # v2 = make_square(0.0, -5.9, half_size+self.config.robot_radius)
+        # new_data.append([obs_index] + v2 + [vx, vy])
+        # obs_index += 1
         # 调试输出 new_data
         # print("new_data:", new_data)
 
@@ -158,8 +179,7 @@ def transform_rectangle_to_local(vertices, c, v, theta, r):
     v = np.array(v)
     
     r_abs = abs(r)
-    if r_abs < 1e-9:
-        raise ValueError("半径 r 接近于 0")
+
     
     # 计算长方形的两条边长
     len_01 = np.linalg.norm(vertices[1] - vertices[0])
@@ -485,45 +505,46 @@ def cal_time(cube,x, y, theta, v, w, T):
         # 直接使用 cube.data（不再通过 get_snapshot 复制）
         cube_data = cube.data
         if cube_data is None:
-            minre_mid=T
-            return minre_mid
+            return T
         else:
             if w==0 or v==0:
-                if point_in_quad(vertices, x, y):
-                    return 0.0
-                else:
-                    minre_mid= T
-                    # 机器人速度，同样保留三位小数
-                    robot_vx = round(v * math.cos(theta), 3)
-                    robot_vy = round(v * math.sin(theta), 3)
-                    for row in cube_data:   # self.data 中每一行代表一个障碍物
-                        vertices=(row[1],row[2],row[3],row[4])
+
+                minre_mid= T
+                # 机器人速度，同样保留三位小数
+                robot_vx = round(v * math.cos(theta), 3)
+                robot_vy = round(v * math.sin(theta), 3)
+                for row in cube_data:   # self.data 中每一行代表一个障碍物
+                    vertices=(row[1],row[2],row[3],row[4])
+                    if point_in_quad(vertices, x, y):
+                        return 0.0
+                    else:
                         obs_vx, obs_vy = row[5], row[6]
                         rel_vel = (robot_vx - obs_vx, robot_vy - obs_vy)
                         result=compute_intersection_time(vertices, rel_vel, x, y, T)
                         if minre_mid>result:
                             minre_mid=result
-                    return minre_mid
+                return minre_mid
                 #print(minre_mid)
             else:
-                if point_in_quad(vertices, x, y):
-                    return 0.0
-                else:
-                    r,c=get_rotation_center(x, y, theta, v, w)
-                    minre_mid= T
-                    for row in cube_data:   # self.data 中每一行代表一个障碍物
-                        # 四个顶点（每个点都是 tuple: (x, y)）
-                        vertices=(row[1],row[2],row[3],row[4])
+
+                r,c=get_rotation_center(x, y, theta, v, w)
+                minre_mid= T
+                for row in cube_data:   # self.data 中每一行代表一个障碍物
+                    # 四个顶点（每个点都是 tuple: (x, y)）
+                    vertices=(row[1],row[2],row[3],row[4])
+                    if point_in_quad(vertices, x, y):
+                        return 0.0
+                    else:
                         v_obs=(row[5],row[6])
-                        minre = T
+                        # minre = T
                         for p_prime, q_prime, v_prime, phi, m in transform_rectangle_to_local(vertices, c, v_obs, theta, r):
                         # 处理每条边
                             result =  find_min_tc_fast(phi=phi, omega=w, v_py_prime= v_prime[1], p_y_prime=p_prime[1], p_x_prime=p_prime[0],v_px_prime = v_prime[0], q_x_prime=q_prime[0], m=-m, T=T)
-                            if minre>=result:
-                                minre=result
-                        if minre_mid>=minre:
-                            minre_mid=minre
-                    return minre_mid
+                            if minre_mid>=result:
+                                minre_mid=result
+                        # if minre_mid>=minre:
+                        #     minre_mid=minre
+                return minre_mid
         # print(minre_mid)
         
 

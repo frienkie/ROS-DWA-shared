@@ -25,6 +25,10 @@ import sys
 from pynput import keyboard  # for keyboard input detect
 import simpleaudio as sa
 import threading
+from gazebo_msgs.srv import SetModelState
+from gazebo_msgs.msg import ModelState
+import json
+from distancetime import *
 # import argparse
 # parser = argparse.ArgumentParser(description="设置参数")
 
@@ -33,8 +37,29 @@ import threading
 
 # # 解析参数
 # args = parser.parse_args()
+import csv
 
-RECORDER = True
+
+RECORDER = False
+
+if RECORDER:
+    log_dir = "/home/frienkie/rosbagpaper"
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, "vw_cost_log.csv")
+    log_file = open(log_path, "w", newline="")
+    log_writer = csv.writer(log_file)
+    log_writer.writerow([
+        "TIME", "v", "w",
+        "to_human_cost", "speed_cost",
+        "ob_cost", "final_cost"
+    ])
+    print("✅ CSV logging enabled")
+else:
+    log_writer = None
+    log_file = None
+    print("❌ CSV logging disabled")
+
+
 
 class Config():
     # simulation parameters
@@ -46,7 +71,7 @@ class Config():
         self.max_speed = 0.25  # [m/s]
         self.min_speed = 0.0  # [m/s]
         # self.max_yawrate = 1.2  # [rad/s]
-        self.max_yawrate = 1.0  # [rad/s]
+        self.max_yawrate = 1.2  # [rad/s]
         self.max_accel = 2.5  # [m/ss]
         self.max_dyawrate = 3.2  # [rad/ss]
         ##################################################33
@@ -56,7 +81,7 @@ class Config():
         #######################################################
         self.dt = 0.4  # [s]
         self.dtsys = 0.05
-        self.predict_time = 15.0  # [s]
+        self.predict_time = 14.8  # [s]
         self.showpredict_time = 3.0  # [s]
         self.showdt = 1.0
         self.goal_radius=0.4
@@ -71,14 +96,14 @@ class Config():
 
         self.to_human_cost_gain = 1.0 #lower = detour
         self.speed_cost_gain = 1.0 #lower = faster
-        self.obs_cost_gain = 1.0 #lower z= fearless
+        self.obs_cost_gain = 2.0 #lower z= fearless
         # if args.param == 3:
         #     self.to_human_cost_gain = 2.0 #lower = detour
         #     self.speed_cost_gain = 1.0 #lower = faster
         #     self.obs_cost_gain = 1.0 #lower z= fearless
         # #############################
         self.robot_radius = 0.22  # [m]
-        self.obs_radius =0.2
+        self.obs_radius =0.1
         self.x = 0.0
         self.y = 0.0
         self.th = 0.0
@@ -207,7 +232,19 @@ def calc_dynamic_window(x, config):
     dw = [max(Vs[0], Vd[0]), min(Vs[1], Vd[1]),
           max(Vs[2], Vd[2]), min(Vs[3], Vd[3])]
 
-    return dw
+    vs = list(np.arange(dw[0], dw[1] + config.v_reso, config.v_reso))
+    ws = list(np.arange(dw[2], dw[3] + config.yawrate_reso, config.yawrate_reso))
+
+    if dw[0] <= 0.0 <= dw[1]:
+        vs.append(0.0)
+    if dw[2] <= 0.0 <= dw[3]:
+        ws.append(0.0)
+
+    vs = sorted(set(round(v, 2) for v in vs
+                    if dw[0] - 1e-6 <= v <= dw[1] + 1e-6))
+    ws = sorted(set(round(w, 2) for w in ws
+                    if dw[2] - 1e-6 <= w <= dw[3] + 1e-6))
+    return vs,ws
 
 list_x=[]
 list_y=[]
@@ -279,7 +316,7 @@ def calc_angle_fromtraj(v, y, config):
 
 
 # Calculate trajectory, costings, and return velocities to apply to robot
-def calc_final_input(x, u, dw, config, ob,readob):
+def calc_final_input(x, u, vs, ws, config, ob,readob,step=None, log_writer=None):
     # global list_x,list_y,line_num
     xinit = x[:]######
     max_cost = 0.0
@@ -288,9 +325,8 @@ def calc_final_input(x, u, dw, config, ob,readob):
     max_u[1] = human.angular.z
     global angle_robot
     # evaluate all trajectory with sampled input in dynamic window
-    for v in np.arange(dw[0], dw[1]+config.v_reso, config.v_reso):
-        for w in np.arange(dw[2], dw[3]+config.yawrate_reso, config.yawrate_reso):
-            w = np.round(w, 2)
+    for v in vs:
+        for w in ws:
 
             traj = calc_trajectory(xinit, v, w, config)
 
@@ -302,9 +338,18 @@ def calc_final_input(x, u, dw, config, ob,readob):
 
             if np.isinf(ob_cost):
                 continue
-
-            final_cost = to_human_cost + speed_cost + ob_cost
             
+            final_cost = to_human_cost + speed_cost + ob_cost
+            if log_writer and RECORDER is not None:
+                log_writer.writerow([
+                    round(step, 3),                   # ← 第几次 while
+                    round(v, 2),
+                    round(w, 2),
+                    to_human_cost,
+                    speed_cost,
+                    ob_cost,
+                    final_cost
+                ])
 
             # search minimum trajectory     ##最大代价
             if max_cost <= final_cost:
@@ -381,12 +426,12 @@ def calc_to_human_cost( v, w,config,traj,n):
 ##################################################################################
 
 # Begin DWA calculations
-def dwa_control(x, u, config, ob,readob):
+def dwa_control(x, u, config, ob,readob,step,log_writer):
     # Dynamic Window control
 
-    dw = calc_dynamic_window(x, config)
+    vs,ws = calc_dynamic_window(x, config)
 
-    u = calc_final_input(x, u, dw, config, ob,readob)
+    u = calc_final_input(x, u, vs,ws, config, ob,readob,step,log_writer)
 
     return u
 
@@ -401,7 +446,7 @@ def atGoal(config):
 human_angle=0
 yici=1
 
-def share1(vel_msg,config):# human command get 获取人类指令
+def share1(vel_msg):# human command get 获取人类指令
     global human
     global human_r
     global inputkey
@@ -500,36 +545,17 @@ def h_line(num):
         exec(f"h_marker.points.append(line_point{i})")
 
 
-def change_goal(config,n):
-    global yici
-    if n==0:
-        config.goalX=-4.0
-        config.goalY=10.0
-    if n==1:
-        config.goalX=-3.8
-        config.goalY=8.5
-    if n==2:
-        config.goalX=-4.0
-        config.goalY=-3.0
-    if n==3:
-        config.goalX=-3.7
-        config.goalY=5.9
-    if n==4:
-        config.goalX=-6.0
-        config.goalY=6.0
-    if n==5:
-        config.goalX=6.0
-        config.goalY=6.0
-    if yici==1:
-        print(n)
-
 human=Twist()
+human.linear.x=0.0
+human.angular.z=0.0
 human_r=float("inf")
 inputkey=0
 write=0
 
 def signal_handler(signal, frame):
     print("\nCtrl + C  is pressed,exit sys")
+    if RECORDER==True:
+        log_file.close()
     sys.exit(0)  # 退出程序
 
 # 绑定 SIGINT 信号（Ctrl + C）到 signal_handler
@@ -551,20 +577,65 @@ def listen_key():
     with keyboard.Listener(on_press=on_press) as listener:
         listener.join()
 
+def set_robot_position(model_name, position, orientation):
+    """
+    瞬间移动机器人到指定坐标
+    :param model_name: 模型名称 (例如 "robot")
+    :param position: 坐标 [x, y, z]
+    :param orientation: 四元数 [x, y, z, w]
+    """
+    # 等待服务
+    rospy.wait_for_service('/gazebo/set_model_state')
+    
+    try:
+        # 创建服务代理
+        set_state = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
+        
+        # 定义模型状态
+        state_msg = ModelState()
+        state_msg.model_name = model_name
+        state_msg.pose.position.x = position[0]
+        state_msg.pose.position.y = position[1]
+        state_msg.pose.position.z = position[2]
+        state_msg.pose.orientation.x = orientation[0]
+        state_msg.pose.orientation.y = orientation[1]
+        state_msg.pose.orientation.z = orientation[2]
+        state_msg.pose.orientation.w = orientation[3]
+        state_msg.twist.linear.x = 0.0
+        state_msg.twist.linear.y = 0.0
+        state_msg.twist.linear.z = 0.0
+        state_msg.twist.angular.x = 0.0
+        state_msg.twist.angular.y = 0.0
+        state_msg.twist.angular.z = 0.0
+        # 调用服务
+        resp = set_state(state_msg)
+        if resp.success:
+            rospy.loginfo(f"Successfully moved {model_name} to {position}")
+        else:
+            rospy.logwarn(f"Failed to move {model_name}: {resp.status_message}")
+    except rospy.ServiceException as e:
+        rospy.logerr(f"Service call failed: {e}")
+    cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+    stop_cmd = Twist()
+    rate = rospy.Rate(10)
+    for _ in range(10):  # 连续发送一段时间，确保停止
+        cmd_vel_pub.publish(stop_cmd)
+        rate.sleep()
+
 def main():
     global yici
     global write
     print(__file__ + " start!!")
     print("human is 0,share is 1")
-    #inputkey=1
-    inputs=input()
-    if inputs=="0":
-            inputkey=0
-    elif inputs=="1":
-            inputkey=1
-    else:
-            rospy.loginfo("input error,run as human")
-            inputkey = 0
+    inputkey=1
+    # inputs=input()
+    # if inputs=="0":
+    #         inputkey=0
+    # elif inputs=="1":
+    #         inputkey=1
+    # else:
+    #         rospy.loginfo("input error,run as human")
+    #         inputkey = 0
 
     # robot specification
     # rand=RandomNumberGenerator()
@@ -572,17 +643,23 @@ def main():
     # position of obstacles
     obs = Obstacles()
     readob = GazeboObsReader(config)
+    counter = StringMessageCounter()
     # if chizu=="4":
     #     config.robot_radius=0.106
     #     obs.pattern=1
     #     print("changed OK")
+    model_name = "turtlebot3_waffle_pi"
+    # 指定目标位置和方向 (四元数)
+    target_position = [0.0, 0.0, 0.0]  # x, y, z
+    target_orientation = [0.0, 0.0, 0.0,  0.0]  # x, y, z, w
+    set_robot_position(model_name, target_position, target_orientation)
 
     threading.Thread(target=listen_key, daemon=True).start()
 
     subOdom = rospy.Subscriber("/odom", Odometry, config.assignOdomCoords)
-    subLaser = rospy.Subscriber("/filtered_scan", LaserScan, obs.assignObs, config)
-
-    sub_hum = rospy.Subscriber("/cmd_vel_human",Twist,share1,config,queue_size=1)
+    # subLaser = rospy.Subscriber("/filtered_scan", LaserScan, obs.assignObs, config)
+    subLaser = rospy.Subscriber("/scan", LaserScan, obs.assignObs, config)
+    sub_hum = rospy.Subscriber("/cmd_vel_human",Twist,share1,queue_size=1)
 
     pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
 
@@ -599,16 +676,16 @@ def main():
     x = np.array([config.x, config.y, config.th, 0.0, 0.0])
     # initial linear and angular velocities
     u = np.array([0.0, 0.0])
-
-    # if RECORDER==True:
-    #     file_value=start_rosbag()
+    step = 0
+    if RECORDER==True:
+        file_value=start_rosbag()
     #     print("You can press y to stop and save rosbag when you need.")
-    #     start_time = rospy.get_time()
+    start_time = rospy.get_time()
     # runs until terminated externally
     while not rospy.is_shutdown():
-
+        current_time = rospy.get_time() - start_time
         if (inputkey== 1):
-            u = dwa_control(x, u, config, obs.obst,readob)
+            u = dwa_control(x, u, config, obs.obst,readob,step=current_time,log_writer=log_writer)
             x[0] = config.x
             x[1] = config.y
             x[2] = config.th
@@ -628,12 +705,12 @@ def main():
         # if yici>0:
         #     marker_pub.publish(markers)
         pub.publish(speed)
-        x_value_pub.publish(obs.minx)
+
         if write==1:
             if yici>0:
                 print("YOU have arrive the goal point")
-
-                # with open(f'/home/frienkie/cood/test{file_value}.txt', 'w') as f:
+                stop_rosbag()
+                # with open(f'/home/frienkie/cood/testold.txt', 'w') as f:
                 #     json.dump(list(config.xy), f)
 
                 # change_goal(config,rand.get_next())
